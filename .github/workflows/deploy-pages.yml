@@ -1,0 +1,64 @@
+# 정적 파일(index.html, css/, js/)을 GitHub Pages에 게시합니다.
+# 저장소 Settings → Pages → Source: GitHub Actions 로 선택하세요.
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare site bundle
+        run: |
+          mkdir -p _site
+          cp index.html _site/
+          cp .nojekyll _site/
+          cp -r css js _site/
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      # 선택: Cloudflare Worker에 배포 알림 (Worker가 GITHUB_TOKEN 등을 Secrets로 보관하는 경우)
+      # 저장소 Settings → Secrets → Actions 에 다음을 추가:
+      #   CF_WORKER_DEPLOY_URL = Worker 엔드포인트 전체 URL (예: https://eoulrimstudio-upload.eoulrimstudio.workers.dev/your-path)
+      #   CF_WORKER_WEBHOOK_SECRET = Worker가 검증할 공유 비밀값 (Worker 코드와 동일해야 함)
+      - name: Notify Cloudflare Worker (optional)
+        if: ${{ secrets.CF_WORKER_DEPLOY_URL != '' }}
+        env:
+          CF_WORKER_DEPLOY_URL: ${{ secrets.CF_WORKER_DEPLOY_URL }}
+          CF_WORKER_WEBHOOK_SECRET: ${{ secrets.CF_WORKER_WEBHOOK_SECRET }}
+        run: |
+          curl -sfS -X POST "$CF_WORKER_DEPLOY_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Secret: ${CF_WORKER_WEBHOOK_SECRET:-}" \
+            -d "{\"repository\":\"${{ github.repository }}\",\"ref\":\"${{ github.ref }}\",\"sha\":\"${{ github.sha }}\",\"pages_url\":\"${{ steps.deployment.outputs.page_url }}\"}"

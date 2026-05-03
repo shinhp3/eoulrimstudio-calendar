@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="월별 일정 관리 캘린더" />
+  <title>Eoulrim Calendar</title>
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header__brand">
+        <span class="header__logo" aria-hidden="true"></span>
+        <div>
+          <h1 class="header__title">캘린더</h1>
+          <p class="header__subtitle">월별 보기 · 브라우저에 일정 저장</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="calendar-panel" aria-labelledby="calendar-heading">
+        <h2 id="calendar-heading" class="visually-hidden">월간 달력</h2>
+
+        <div class="calendar-masthead">
+          <div class="calendar-masthead__display">
+            <p class="calendar-masthead__year-line">
+              <span class="calendar-masthead__year" id="viewYearLabel"></span>
+              <span class="calendar-masthead__suffix">년</span>
+            </p>
+            <time class="calendar-masthead__month-line" id="viewMonthLabel" datetime=""></time>
+          </div>
+          <div class="calendar-masthead__toolbar">
+            <button type="button" class="btn btn--ghost" id="btnToday" aria-label="오늘로 이동">오늘</button>
+            <div class="month-nav" role="group" aria-label="월 이동">
+              <button type="button" class="btn btn--icon" id="btnPrev" aria-label="이전 달">
+                <span aria-hidden="true">‹</span>
+              </button>
+              <button type="button" class="btn btn--icon" id="btnNext" aria-label="다음 달">
+                <span aria-hidden="true">›</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="weekdays" role="row">
+          <span class="weekdays__cell weekdays__cell--weekend" role="columnheader">일</span>
+          <span class="weekdays__cell" role="columnheader">월</span>
+          <span class="weekdays__cell" role="columnheader">화</span>
+          <span class="weekdays__cell" role="columnheader">수</span>
+          <span class="weekdays__cell" role="columnheader">목</span>
+          <span class="weekdays__cell" role="columnheader">금</span>
+          <span class="weekdays__cell weekdays__cell--weekend" role="columnheader">토</span>
+        </div>
+        <div class="grid" id="calendarGrid" role="grid" aria-label="날짜 그리드"></div>
+      </section>
+
+      <aside class="detail-panel" aria-labelledby="detail-heading">
+        <h2 id="detail-heading" class="detail-panel__title">선택한 날짜</h2>
+        <p class="detail-panel__date" id="selectedDateLabel">날짜를 선택하세요</p>
+
+        <form class="event-form" id="eventForm" autocomplete="off">
+          <label class="field">
+            <span class="field__label">일정 제목</span>
+            <input type="text" name="title" class="input" placeholder="예: 기획 회의" maxlength="120" required />
+          </label>
+          <label class="field">
+            <span class="field__label">시간 (선택)</span>
+            <input type="time" name="time" class="input input--time" />
+          </label>
+          <button type="submit" class="btn btn--primary">일정 추가</button>
+        </form>
+
+        <div class="event-list-wrap">
+          <h3 class="event-list__heading">이 날의 일정</h3>
+          <ul class="event-list" id="eventList"></ul>
+          <p class="event-list__empty" id="eventEmpty">등록된 일정이 없습니다.</p>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <p>데이터는 이 브라우저에만 저장됩니다.</p>
+    </footer>
+  </div>
+
+  <script src="js/calendar.js"></script>
+</body>
+</html>
