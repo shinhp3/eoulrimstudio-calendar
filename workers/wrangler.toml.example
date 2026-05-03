@@ -1,3 +1,5 @@
+# KV 에만 저장하는 예제 (GitHub 커밋 방식은 wrangler.github-calendar.toml.example 참고)
+#
 # 사용법: wrangler.toml 로 복사한 뒤 name / KV id 를 채우고 배포
 #   cp wrangler.toml.example wrangler.toml
 

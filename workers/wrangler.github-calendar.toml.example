@@ -1,0 +1,21 @@
+# GitHub models/calendar-events.json 동기화 Worker 배포 예시
+#
+#   cd workers
+#   cp wrangler.github-calendar.toml.example wrangler.toml
+#
+# Worker 이름은 기존 STL 업로드 Worker와 같아도 되지만,
+# 그 경우 엔트리 파일(main)을 배포 시 선택한 스크립트로 통합해야 합니다.
+
+name = "eoulrimstudio-upload"
+main = "github-calendar-sync.js"
+compatibility_date = "2024-01-01"
+
+# 대시보드 또는 CLI 로 설정 (커밋하지 마세요):
+#   wrangler secret put GITHUB_TOKEN
+#
+# [vars] 또는 Dashboard → Variables:
+#   GITHUB_USERNAME = "저장소-owner"
+#   GITHUB_REPO     = "저장소이름"
+# 선택:
+#   GITHUB_BRANCH        = "main"
+#   CALENDAR_REPO_PATH   = "models/calendar-events.json"

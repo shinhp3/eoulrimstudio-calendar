@@ -525,10 +525,20 @@
       els.syncStatus.textContent = "서버와 동기화됨 · 같은 주소를 연 사람과 목록이 같습니다.";
     } else if (mode === "loading") {
       els.syncStatus.textContent = "서버에서 불러오는 중…";
+    } else if (mode === "bad_endpoint") {
+      els.syncStatus.textContent =
+        "동기화 주소가 JSON API가 아닙니다. Workers에 github-calendar-sync.js(또는 KV용 calendar-sync.js)를 배포하고 메타 URL을 /api/calendar-events 로 맞추세요.";
     } else {
       els.syncStatus.textContent =
         "서버와 연결되지 않았습니다. 변경은 로컬에만 저장되며 곧 다시 동기화합니다.";
     }
+  }
+
+  function looksLikeHtmlResponse(text) {
+    var t = String(text || "").trim();
+    if (!t) return false;
+    var low = t.slice(0, 64).toLowerCase();
+    return low.startsWith("<!doctype") || low.startsWith("<html");
   }
 
   async function pullRemote() {
@@ -536,8 +546,22 @@
     setSyncStatus("loading");
     try {
       var res = await fetch(SYNC_URL, { cache: "no-store" });
-      if (!res.ok) throw new Error(String(res.status));
-      var data = await res.json();
+      var raw = await res.text();
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 405) setSyncStatus("bad_endpoint");
+        else setSyncStatus("offline");
+        return;
+      }
+      if (looksLikeHtmlResponse(raw)) {
+        setSyncStatus("bad_endpoint");
+        return;
+      }
+      var ct = (res.headers.get("content-type") || "").toLowerCase();
+      if (ct.indexOf("application/json") === -1 && raw.trim().charAt(0) !== "{") {
+        setSyncStatus("bad_endpoint");
+        return;
+      }
+      var data = JSON.parse(raw);
       if (typeof data !== "object" || data === null || Array.isArray(data)) {
         throw new Error("bad payload");
       }
@@ -568,7 +592,15 @@
         headers: { "Content-Type": "application/json" },
         body: body,
       });
-      if (!res.ok) throw new Error(String(res.status));
+      var raw = await res.text();
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 405 || looksLikeHtmlResponse(raw)) {
+          setSyncStatus("bad_endpoint");
+        } else {
+          setSyncStatus("offline");
+        }
+        return;
+      }
       setSyncStatus("server");
     } catch (e) {
       setSyncStatus("offline");

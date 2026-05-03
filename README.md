@@ -20,9 +20,14 @@
 ├── .github/
 │   └── workflows/
 │       └── deploy-pages.yml   # GitHub Pages 자동 배포
+├── models/
+│   └── calendar-events.json   # Worker(GitHub API)가 커밋하는 공유 데이터 위치
 ├── workers/
-│   ├── calendar-sync.js       # Cloudflare Worker 예제 (KV에 JSON 저장)
-│   └── wrangler.toml.example
+│   ├── eoulrimstudio-upload.worker.js   # STL·records·tools + 캘린더(/api/calendar-events) 통합 Worker — 대시보드 붙여넣기 배포용
+│   ├── github-calendar-sync.js          # 캘린더만 단독 배포할 때 (GitHub Contents API)
+│   ├── calendar-sync.js                 # KV 전용 (대안)
+│   ├── wrangler.toml.example
+│   └── wrangler.github-calendar.toml.example
 ├── css/
 │   └── styles.css
 ├── js/
@@ -34,11 +39,38 @@
 
 ## 다른 사람과 같은 데이터 보기 (Worker 배포)
 
-1. Cloudflare에서 **KV 네임스페이스**를 만들고, Worker에 바인딩 이름 **`CALENDAR_KV`** 로 연결합니다.
-2. `workers/wrangler.toml.example` 을 참고해 `wrangler.toml` 을 만든 뒤, `workers/calendar-sync.js` 를 배포합니다.
-3. 배포된 Worker의 **`/api/calendar-events`** 경로 전체 URL을 `index.html` 메타 `calendar-sync-url` 에 넣습니다.  
-   기본값은 `https://eoulrimstudio-upload.eoulrimstudio.workers.dev/api/calendar-events` 형태를 가정합니다.
-4. 이 Worker 예제는 **누구나 GET/PUT 가능한 공개 API**입니다. 운영 환경에서는 헤더 토큰 검증 등을 Worker에 추가하는 것을 권장합니다.
+브라우저는 **`calendar-sync-url`** 로 JSON 전체를 GET/PUT 합니다. 저장 방식은 두 가지 중 하나를 쓰면 됩니다.
+
+### A. GitHub에 커밋 (STL 업로드 Worker와 같은 방식) — 권장
+
+1. GitHub에서 이 저장소용 **PAT** 을 만들고, 대상 저장소에 **Contents: Read and write** 권한을 줍니다.
+2. Cloudflare Worker에 다음을 설정합니다 (**저장소에 커밋하지 마세요**).
+   - Secret: `GITHUB_TOKEN`
+   - 변수: `GITHUB_USERNAME` (owner), `GITHUB_REPO` (저장소 이름만)
+   - 선택: `GITHUB_BRANCH` (기본 `main`), `CALENDAR_REPO_PATH` (기본 `models/calendar-events.json`)
+3. `workers/wrangler.github-calendar.toml.example` 을 참고해 `workers/wrangler.toml` 을 만들고 엔트리를 **`github-calendar-sync.js`** 로 둔 뒤 배포합니다.
+4. 배포된 Worker의 **`https://<worker-host>/api/calendar-events`** 전체 URL을 `index.html` 의 `calendar-sync-url` 메타에 넣습니다.
+
+메모를 수정하면 Worker가 GitHub **Contents API**로 `models/calendar-events.json` 을 갱신하고, **`main`** 에 커밋이 쌓입니다 (예: `Update calendar: models/calendar-events.json @ <ISO 시각>`).
+
+**이미 `eoulrimstudio-upload.eoulrimstudio.workers.dev` 에 STL Worker를 쓰는 경우:** 저장소의 **`workers/eoulrimstudio-upload.worker.js`** 전체를 Cloudflare 대시보드 Worker 코드에 붙여넣어 배포하면 됩니다. (데스크톱의 `worker.json`과 동일 선상에 **`GET`/`PUT` `/api/calendar-events`** 가 추가된 버전입니다.) 캘린더 데이터는 **`GITHUB_REPO` 저장소의 `models/calendar-events.json`** 에 커밋됩니다.
+
+별도 Worker만 쓰려면 **`github-calendar-sync.js`** 를 배포하면 됩니다.
+
+### B. KV만 사용 (대안)
+
+1. Cloudflare **KV** 를 만들고 바인딩 이름 **`CALENDAR_KV`** 로 연결합니다.
+2. `workers/wrangler.toml.example` + `workers/calendar-sync.js` 로 배포합니다.
+3. **`/api/calendar-events`** 전체 URL을 메타에 넣습니다.
+
+### 「서버와 연결되지 않았습니다」또는 「동기화 주소가 JSON API가 아닙니다」가 뜰 때
+
+메타 URL로 **GET** 했을 때 본문이 **`{` 로 시작하는 JSON** 이어야 합니다.
+
+- **HTML이 오거나 PUT 이 405:** 해당 Worker에 `github-calendar-sync.js` 또는 `calendar-sync.js` 라우트가 없거나, 다른 앱이 같은 경로를 쓰고 있는 상태입니다.
+- **GitHub 방식에서 401/403:** `GITHUB_TOKEN` 권한 또는 owner/repo 이름을 확인하세요.
+
+공개 Worker는 **누구나 GET/PUT** 가능합니다. 운영에서는 헤더 토큰 검증 등을 추가하는 것을 권장합니다.
 
 클라이언트는 대략 **45초마다** 서버를 다시 읽고, 항목을 바꾼 뒤에는 **디바운스된 PUT** 으로 전체 JSON을 올립니다.
 
