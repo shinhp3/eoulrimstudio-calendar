@@ -15,11 +15,18 @@
   var pushTimer = null;
   var pushInFlight = false;
 
-  /** @type {{ viewYear: number, viewMonth: number, selected: string | null }} */
+  /** @type {Record<string, boolean>} */
+  var selectedDates = Object.create(null);
+
+  /** @type {string | null} */
+  var focusDate = null;
+
+  /** @type {string | null} */
+  var selectionAnchor = null;
+
   var state = {
     viewYear: new Date().getFullYear(),
     viewMonth: new Date().getMonth(),
-    selected: null,
   };
 
   function pad(n) {
@@ -71,8 +78,7 @@
   function writeAll(map) {
     eventsCache = map;
     saveLocalObject(map);
-    renderGrid();
-    renderDetail();
+    refreshUi();
     schedulePush();
   }
 
@@ -83,11 +89,16 @@
     var summary = String(ev.summary || "").trim();
     var c = String(ev.color || "").trim();
     if (!/^#[0-9A-Fa-f]{6}$/.test(c)) c = DEFAULT_HIGHLIGHT;
+    var id =
+      typeof ev.id === "string"
+        ? ev.id
+        : "legacy-" + i + "-" + title + "-" + String(ev.time || "");
+    var rawLine =
+      typeof ev.lineId === "string" ? String(ev.lineId).trim() : "";
+    var lineId = rawLine || id;
     return {
-      id:
-        typeof ev.id === "string"
-          ? ev.id
-          : "legacy-" + i + "-" + title + "-" + String(ev.time || ""),
+      id: id,
+      lineId: lineId,
       title: title,
       summary: summary,
       time: ev.time ? String(ev.time) : "",
@@ -96,18 +107,78 @@
     };
   }
 
-  function getEventsForDay(key) {
-    var all = readAll();
-    var list = all[key];
+  function normalizedListForKey(key, map) {
+    var list = map[key];
     if (!Array.isArray(list)) return [];
     return list.map(normalizeEvent).filter(Boolean);
   }
 
-  function setEventsForDay(key, list) {
+  function getTargetsForMemo() {
+    var keys = Object.keys(selectedDates).filter(function (k) {
+      return selectedDates[k];
+    });
+    if (keys.length > 0) return keys.slice().sort();
+    if (focusDate) return [focusDate];
+    return [];
+  }
+
+  function enumerateKeysBetween(keyA, keyB) {
+    var order = keyA <= keyB ? 1 : -1;
+    var startKey = order === 1 ? keyA : keyB;
+    var endKey = order === 1 ? keyB : keyA;
+    var out = [];
+    var cur = parseKey(startKey);
+    for (var guard = 0; guard < 500; guard++) {
+      var k = toKey(cur.y, cur.m, cur.d);
+      out.push(k);
+      if (k === endKey) break;
+      var dt = new Date(cur.y, cur.m, cur.d + 1);
+      cur = { y: dt.getFullYear(), m: dt.getMonth(), d: dt.getDate() };
+    }
+    return out;
+  }
+
+  function toggleSelected(key) {
+    if (selectedDates[key]) delete selectedDates[key];
+    else selectedDates[key] = true;
+  }
+
+  function applyLineDone(lineId, done) {
     var map = JSON.parse(JSON.stringify(readAll()));
-    if (list.length === 0) delete map[key];
-    else map[key] = list;
+    Object.keys(map).forEach(function (key) {
+      var list = map[key];
+      if (!Array.isArray(list)) return;
+      map[key] = list.map(function (ev, idx) {
+        var n = normalizeEvent(ev, idx);
+        if (!n) return ev;
+        if (n.lineId === lineId) {
+          return Object.assign({}, ev, { done: done, lineId: n.lineId });
+        }
+        return ev;
+      });
+    });
     writeAll(map);
+  }
+
+  function deleteLine(lineId) {
+    var map = JSON.parse(JSON.stringify(readAll()));
+    Object.keys(map).forEach(function (key) {
+      var list = map[key];
+      if (!Array.isArray(list)) return;
+      var next = [];
+      list.forEach(function (ev, idx) {
+        var n = normalizeEvent(ev, idx);
+        if (!n || n.lineId !== lineId) next.push(ev);
+      });
+      if (next.length === 0) delete map[key];
+      else map[key] = next;
+    });
+    writeAll(map);
+  }
+
+  function truncate(str, max) {
+    if (str.length <= max) return str;
+    return str.slice(0, Math.max(0, max - 1)) + "…";
   }
 
   function sortEventsForDisplay(list) {
@@ -117,28 +188,6 @@
       var tb = b.time || "";
       return ta.localeCompare(tb);
     });
-  }
-
-  function formatSelectedLabel(key) {
-    if (!key) return "날짜를 선택하세요";
-    var p = parseKey(key);
-    var dt = new Date(p.y, p.m, p.d);
-    var w = ["일", "월", "화", "수", "목", "금", "토"][dt.getDay()];
-    return (
-      p.y +
-      "년 " +
-      (p.m + 1) +
-      "월 " +
-      p.d +
-      "일 (" +
-      w +
-      ")"
-    );
-  }
-
-  function truncate(str, max) {
-    if (str.length <= max) return str;
-    return str.slice(0, Math.max(0, max - 1)) + "…";
   }
 
   function daysInMonth(y, m) {
@@ -182,35 +231,98 @@
     return cells;
   }
 
+  function computeStreakRuns(rowCells, map) {
+    var lineMeta = Object.create(null);
+
+    rowCells.forEach(function (rc) {
+      if (rc.outside) return;
+      var evs = normalizedListForKey(rc.key, map);
+      evs.forEach(function (ev) {
+        var lid = ev.lineId;
+        if (!lineMeta[lid]) {
+          lineMeta[lid] = {
+            cols: [],
+            color: ev.color,
+            done: !!ev.done,
+          };
+        }
+        lineMeta[lid].cols.push(rc.col);
+        lineMeta[lid].done = lineMeta[lid].done && !!ev.done;
+      });
+    });
+
+    var runs = [];
+    Object.keys(lineMeta).forEach(function (lid) {
+      var cols = lineMeta[lid].cols
+        .filter(function (v, i, a) {
+          return a.indexOf(v) === i;
+        })
+        .sort(function (a, b) {
+          return a - b;
+        });
+      if (cols.length === 0) return;
+
+      var start = cols[0];
+      var prev = cols[0];
+      for (var i = 1; i < cols.length; i++) {
+        var next = cols[i];
+        if (next === prev + 1) {
+          prev = next;
+          continue;
+        }
+        runs.push({
+          lineId: lid,
+          startCol: start,
+          spanCols: prev - start + 1,
+          color: lineMeta[lid].color,
+          done: lineMeta[lid].done,
+        });
+        start = next;
+        prev = next;
+      }
+      runs.push({
+        lineId: lid,
+        startCol: start,
+        spanCols: prev - start + 1,
+        color: lineMeta[lid].color,
+        done: lineMeta[lid].done,
+      });
+    });
+
+    runs.sort(function (a, b) {
+      return a.startCol - b.startCol || a.spanCols - b.spanCols;
+    });
+
+    return runs;
+  }
+
   var els = {
-    grid: document.getElementById("calendarGrid"),
-    viewYearLabel: document.getElementById("viewYearLabel"),
-    viewMonthLabel: document.getElementById("viewMonthLabel"),
+    shell: document.getElementById("calendarGridShell"),
+    viewPeriodLabel: document.getElementById("viewPeriodLabel"),
     btnPrev: document.getElementById("btnPrev"),
     btnNext: document.getElementById("btnNext"),
     btnToday: document.getElementById("btnToday"),
-    btnSync: document.getElementById("btnSync"),
     syncStatus: document.getElementById("syncStatus"),
-    selectedDateLabel: document.getElementById("selectedDateLabel"),
-    eventForm: document.getElementById("eventForm"),
-    eventList: document.getElementById("eventList"),
-    eventEmpty: document.getElementById("eventEmpty"),
+    mastheadBoard: document.getElementById("mastheadBoard"),
+    selectionSummary: document.getElementById("selectionSummary"),
+    memoForm: document.getElementById("memoForm"),
+    memoInput: document.getElementById("memoInput"),
+    hiddenColor: document.getElementById("hiddenColor"),
   };
 
   function setSyncStatus(mode) {
     if (!els.syncStatus) return;
     if (!SYNC_URL) {
-      els.syncStatus.textContent = "동기화 없음 · 이 기기에만 저장";
+      els.syncStatus.textContent = "";
       return;
     }
     if (mode === "server") {
-      els.syncStatus.textContent =
-        "서버 동기화 · 같은 주소를 연 사람과 목록이 같습니다";
+      els.syncStatus.textContent = "서버와 동기화됨 · 같은 주소를 연 사람과 목록이 같습니다.";
     } else if (mode === "loading") {
       els.syncStatus.textContent = "서버에서 불러오는 중…";
     } else {
       els.syncStatus.textContent =
-        "서버와 연결되지 않음 · 로컬만 저장 (동기화 버튼으로 재시도)";
+        "서버와 연결되지 않았습니다. 변경은 로컬에만 저장되며 곧 다시 동기화합니다.";
     }
   }
 
@@ -226,8 +338,7 @@
       }
       eventsCache = /** @type {Record<string, unknown[]>} */ (data);
       saveLocalObject(eventsCache);
-      renderGrid();
-      renderDetail();
+      refreshUi();
       setSyncStatus("server");
     } catch (e) {
       setSyncStatus("offline");
@@ -239,7 +350,7 @@
     clearTimeout(pushTimer);
     pushTimer = setTimeout(function () {
       pushRemote();
-    }, 700);
+    }, 650);
   }
 
   async function pushRemote() {
@@ -270,212 +381,260 @@
     );
   }
 
-  function renderGrid() {
-    var y = state.viewYear;
-    var m = state.viewMonth;
-    els.viewYearLabel.textContent = String(y);
-    els.viewMonthLabel.textContent = m + 1 + "월";
-    els.viewMonthLabel.setAttribute("datetime", y + "-" + pad(m + 1) + "-01");
-
-    var cells = buildMonthCells(y, m);
-    var frag = document.createDocumentFragment();
-    var all = readAll();
-
-    cells.forEach(function (cell) {
-      var key = toKey(cell.y, cell.m, cell.d);
-      var btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "grid__cell";
-      btn.setAttribute("role", "gridcell");
-      btn.dataset.date = key;
-
-      if (cell.outside) btn.classList.add("grid__cell--outside");
-
-      var wd = new Date(cell.y, cell.m, cell.d).getDay();
-      if (wd === 0) btn.classList.add("grid__cell--sun");
-      if (wd === 6) btn.classList.add("grid__cell--sat");
-
-      if (!cell.outside && isToday(cell.y, cell.m, cell.d)) {
-        btn.classList.add("grid__cell--today");
-      }
-
-      if (state.selected === key) btn.classList.add("grid__cell--selected");
-
-      var num = document.createElement("span");
-      num.className = "grid__cell-num";
-      num.textContent = String(cell.d);
-      btn.appendChild(num);
-
-      var rawList = all[key] || [];
-      var normalizedCell = Array.isArray(rawList)
-        ? rawList.map(normalizeEvent).filter(Boolean)
-        : [];
-      var sorted = sortEventsForDisplay(normalizedCell);
-
-      if (sorted.length > 0 && !cell.outside) {
-        btn.classList.add("grid__cell--has-items");
-
-        var bodyWrap = document.createElement("div");
-        bodyWrap.className = "grid__cell-body";
-
-        var sums = document.createElement("div");
-        sums.className = "grid__cell-summaries";
-        var maxLines = 4;
-        sorted.slice(0, maxLines).forEach(function (ev) {
-          var line = document.createElement("span");
-          line.className =
-            "grid__summary-line" +
-            (ev.done ? " grid__summary-line--done" : "");
-          line.textContent = truncate(ev.summary || ev.title, 18);
-          line.title = ev.title + (ev.time ? " · " + ev.time : "");
-          sums.appendChild(line);
-        });
-        if (sorted.length > maxLines) {
-          var moreSum = document.createElement("span");
-          moreSum.className = "grid__summary-more";
-          moreSum.textContent = "+" + (sorted.length - maxLines);
-          sums.appendChild(moreSum);
-        }
-        bodyWrap.appendChild(sums);
-        btn.appendChild(bodyWrap);
-
-        var hl = document.createElement("div");
-        hl.className = "grid__cell-highlights";
-        var maxBars = 8;
-        sorted.slice(0, maxBars).forEach(function (ev) {
-          var bar = document.createElement("span");
-          bar.className =
-            "grid__highlight-bar" +
-            (ev.done ? " grid__highlight-bar--done" : "");
-          bar.style.backgroundColor = ev.color;
-          hl.appendChild(bar);
-        });
-        if (sorted.length > maxBars) {
-          var tailBar = document.createElement("span");
-          tailBar.className = "grid__highlight-bar grid__highlight-bar--more";
-          tailBar.textContent = "+" + (sorted.length - maxBars);
-          hl.appendChild(tailBar);
-        }
-        btn.appendChild(hl);
-      }
-
-      if (!cell.outside) {
-        btn.addEventListener("click", function () {
-          state.selected = key;
-          renderGrid();
-          renderDetail();
-        });
-      } else {
-        btn.tabIndex = -1;
-        btn.setAttribute("aria-hidden", "true");
-      }
-
-      frag.appendChild(btn);
-    });
-
-    els.grid.replaceChildren(frag);
+  function formatFocusHeading(key) {
+    var p = parseKey(key);
+    var dt = new Date(p.y, p.m, p.d);
+    var w = ["일", "월", "화", "수", "목", "금", "토"][dt.getDay()];
+    return (
+      p.y +
+      "년 " +
+      (p.m + 1) +
+      "월 " +
+      p.d +
+      "일 (" +
+      w +
+      ") 메모"
+    );
   }
 
-  function renderDetail() {
-    els.selectedDateLabel.textContent = formatSelectedLabel(state.selected);
-    els.eventList.innerHTML = "";
+  function refreshUi() {
+    renderPeriod();
+    renderGrid();
+    renderMastheadBoard();
+    renderSelectionSummary();
+    syncMemoFormState();
+  }
 
-    if (!state.selected) {
-      els.eventEmpty.textContent =
-        "달력에서 날짜를 선택하면 할 일을 추가할 수 있습니다.";
-      els.eventEmpty.classList.remove("is-hidden");
-      els.eventForm.querySelector("[name=title]").disabled = true;
-      els.eventForm.querySelector("[name=summary]").disabled = true;
-      els.eventForm.querySelector("[name=time]").disabled = true;
-      els.eventForm.querySelectorAll('input[name="color"]').forEach(function (r) {
-        r.disabled = true;
-      });
-      els.eventForm.querySelector("button[type=submit]").disabled = true;
-      return;
-    }
+  function renderPeriod() {
+    var y = state.viewYear;
+    var m = state.viewMonth;
+    els.viewPeriodLabel.textContent = y + "년 " + (m + 1) + "월";
+  }
 
-    els.eventForm.querySelector("[name=title]").disabled = false;
-    els.eventForm.querySelector("[name=summary]").disabled = false;
-    els.eventForm.querySelector("[name=time]").disabled = false;
-    els.eventForm.querySelectorAll('input[name="color"]').forEach(function (r) {
-      r.disabled = false;
+  function renderSelectionSummary() {
+    var keys = Object.keys(selectedDates).filter(function (k) {
+      return selectedDates[k];
     });
-    els.eventForm.querySelector("button[type=submit]").disabled = false;
+    var lines = [];
+    if (keys.length > 0) {
+      lines.push("선택된 날짜 " + keys.length + "일 · 추가하면 모두에 같은 줄로 표시됩니다.");
+    } else {
+      lines.push("날짜를 클릭해 선택합니다. Shift+클릭으로 범위를 한 번에 선택할 수 있어요.");
+    }
+    if (focusDate) {
+      lines.push("포커스: " + formatFocusHeading(focusDate).replace(" 메모", ""));
+    }
+    els.selectionSummary.textContent = lines.join(" ");
+  }
 
-    var items = sortEventsForDisplay(getEventsForDay(state.selected));
-    if (items.length === 0) {
-      els.eventEmpty.textContent = "등록된 할 일이 없습니다.";
-      els.eventEmpty.classList.remove("is-hidden");
+  function syncMemoFormState() {
+    var ok = getTargetsForMemo().length > 0;
+    els.memoInput.disabled = !ok;
+    els.memoForm.querySelector(".btn--primary").disabled = !ok;
+    els.memoForm.querySelectorAll(".color-chip").forEach(function (btn) {
+      btn.disabled = !ok;
+    });
+  }
+
+  function renderMastheadBoard() {
+    els.mastheadBoard.innerHTML = "";
+
+    if (!focusDate) {
+      var hint = document.createElement("p");
+      hint.className = "masthead-board__hint";
+      hint.textContent = "달력에서 날짜를 누르면 그날 메모가 여기 크게 보입니다.";
+      els.mastheadBoard.appendChild(hint);
       return;
     }
 
-    els.eventEmpty.classList.add("is-hidden");
+    var map = readAll();
+    var items = sortEventsForDisplay(normalizedListForKey(focusDate, map));
+
+    var title = document.createElement("p");
+    title.className = "masthead-board__heading";
+    title.textContent = formatFocusHeading(focusDate);
+    els.mastheadBoard.appendChild(title);
+
+    if (items.length === 0) {
+      var empty = document.createElement("p");
+      empty.className = "masthead-board__hint";
+      empty.textContent = "이 날짜에는 메모가 없습니다.";
+      els.mastheadBoard.appendChild(empty);
+      return;
+    }
+
+    var ul = document.createElement("ul");
+    ul.className = "masthead-memo-list";
 
     items.forEach(function (ev) {
       var li = document.createElement("li");
       li.className =
-        "event-item" + (ev.done ? " event-item--done" : "");
+        "masthead-memo-item" + (ev.done ? " masthead-memo-item--done" : "");
 
-      var mark = document.createElement("label");
-      mark.className = "event-item__check";
+      var row = document.createElement("div");
+      row.className = "masthead-memo-item__row";
+
+      var lab = document.createElement("label");
+      lab.className = "masthead-memo-item__check";
       var cb = document.createElement("input");
       cb.type = "checkbox";
       cb.checked = !!ev.done;
-      cb.title = "완료 표시";
       cb.addEventListener("change", function () {
-        var list = getEventsForDay(state.selected);
-        var next = list.map(function (x) {
-          if (x.id !== ev.id) return x;
-          return Object.assign({}, x, { done: cb.checked });
-        });
-        setEventsForDay(state.selected, next);
+        applyLineDone(ev.lineId, cb.checked);
       });
-      mark.appendChild(cb);
+      lab.appendChild(cb);
 
       var stripe = document.createElement("span");
-      stripe.className = "event-item__stripe";
+      stripe.className = "masthead-memo-item__stripe";
       stripe.style.backgroundColor = ev.color;
 
       var body = document.createElement("div");
-      body.className = "event-item__body";
-      var h = document.createElement("p");
-      h.className = "event-item__title";
-      h.textContent = ev.title;
-      body.appendChild(h);
-      var sum = document.createElement("p");
-      sum.className = "event-item__summary";
-      if (ev.summary) {
-        sum.textContent = ev.summary;
-        body.appendChild(sum);
-      }
-      if (ev.time) {
-        var t = document.createElement("p");
-        t.className = "event-item__time";
-        t.textContent = ev.time;
-        body.appendChild(t);
-      }
+      body.className = "masthead-memo-item__body";
+      var p = document.createElement("p");
+      p.className = "masthead-memo-item__text";
+      p.textContent = ev.title;
+      body.appendChild(p);
 
       var del = document.createElement("button");
       del.type = "button";
       del.className = "btn btn--danger";
       del.textContent = "삭제";
       del.addEventListener("click", function () {
-        var list = getEventsForDay(state.selected).filter(function (x) {
-          return x.id !== ev.id;
-        });
-        setEventsForDay(state.selected, list);
+        deleteLine(ev.lineId);
       });
 
-      var row = document.createElement("div");
-      row.className = "event-item__row";
-      row.appendChild(mark);
+      row.appendChild(lab);
       row.appendChild(stripe);
       row.appendChild(body);
       row.appendChild(del);
 
       li.appendChild(row);
-      els.eventList.appendChild(li);
+      ul.appendChild(li);
     });
+
+    els.mastheadBoard.appendChild(ul);
+  }
+
+  function renderGrid() {
+    var y = state.viewYear;
+    var m = state.viewMonth;
+    var cells = buildMonthCells(y, m);
+    var all = readAll();
+    var frag = document.createDocumentFragment();
+
+    for (var w = 0; w < 6; w++) {
+      var pack = document.createElement("div");
+      pack.className = "calendar-week-pack";
+
+      var rowEl = document.createElement("div");
+      rowEl.className = "calendar-week-pack__cells";
+
+      var streakLayer = document.createElement("div");
+      streakLayer.className = "calendar-week-pack__streaks";
+      streakLayer.setAttribute("aria-hidden", "true");
+
+      var rowCells = [];
+
+      for (var c = 0; c < 7; c++) {
+        var idx = w * 7 + c;
+        var cell = cells[idx];
+        var key = toKey(cell.y, cell.m, cell.d);
+
+        rowCells.push({ key: key, outside: cell.outside, col: c });
+
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "grid__cell";
+        btn.dataset.date = key;
+
+        if (cell.outside) btn.classList.add("grid__cell--outside");
+
+        var wd = new Date(cell.y, cell.m, cell.d).getDay();
+        if (wd === 0) btn.classList.add("grid__cell--sun");
+        if (wd === 6) btn.classList.add("grid__cell--sat");
+
+        if (!cell.outside && isToday(cell.y, cell.m, cell.d)) {
+          btn.classList.add("grid__cell--today");
+        }
+
+        if (focusDate === key) btn.classList.add("grid__cell--focus");
+        if (selectedDates[key]) btn.classList.add("grid__cell--picked");
+
+        var num = document.createElement("span");
+        num.className = "grid__cell-num";
+        num.textContent = String(cell.d);
+        btn.appendChild(num);
+
+        var normalizedCell = normalizedListForKey(key, all);
+        var sorted = sortEventsForDisplay(normalizedCell);
+
+        if (sorted.length > 0 && !cell.outside) {
+          btn.classList.add("grid__cell--has-items");
+
+          var bodyWrap = document.createElement("div");
+          bodyWrap.className = "grid__cell-body";
+
+          var sums = document.createElement("div");
+          sums.className = "grid__cell-summaries";
+          var maxLines = 4;
+          sorted.slice(0, maxLines).forEach(function (ev) {
+            var line = document.createElement("span");
+            line.className =
+              "grid__summary-line" +
+              (ev.done ? " grid__summary-line--done" : "");
+            line.textContent = truncate(ev.summary || ev.title, 20);
+            line.title = ev.title;
+            sums.appendChild(line);
+          });
+          if (sorted.length > maxLines) {
+            var moreSum = document.createElement("span");
+            moreSum.className = "grid__summary-more";
+            moreSum.textContent = "+" + (sorted.length - maxLines);
+            sums.appendChild(moreSum);
+          }
+          bodyWrap.appendChild(sums);
+          btn.appendChild(bodyWrap);
+        }
+
+        if (!cell.outside) {
+          btn.addEventListener("click", function (e) {
+            var shift = !!e.shiftKey;
+            if (shift && selectionAnchor) {
+              enumerateKeysBetween(selectionAnchor, key).forEach(function (k) {
+                selectedDates[k] = true;
+              });
+            } else {
+              toggleSelected(key);
+              selectionAnchor = key;
+            }
+            focusDate = key;
+            refreshUi();
+          });
+        } else {
+          btn.tabIndex = -1;
+          btn.setAttribute("aria-hidden", "true");
+        }
+
+        rowEl.appendChild(btn);
+      }
+
+      var runs = computeStreakRuns(rowCells, all);
+      runs.forEach(function (run) {
+        var seg = document.createElement("span");
+        seg.className =
+          "calendar-streak-segment" +
+          (run.done ? " calendar-streak-segment--done" : "");
+        seg.style.gridColumn = run.startCol + 1 + " / span " + run.spanCols;
+        seg.style.backgroundColor = run.color;
+        streakLayer.appendChild(seg);
+      });
+
+      pack.appendChild(rowEl);
+      pack.appendChild(streakLayer);
+      frag.appendChild(pack);
+    }
+
+    els.shell.replaceChildren(frag);
   }
 
   els.btnPrev.addEventListener("click", function () {
@@ -484,7 +643,7 @@
       state.viewMonth = 11;
       state.viewYear--;
     }
-    renderGrid();
+    refreshUi();
   });
 
   els.btnNext.addEventListener("click", function () {
@@ -493,59 +652,77 @@
       state.viewMonth = 0;
       state.viewYear++;
     }
-    renderGrid();
+    refreshUi();
   });
 
   els.btnToday.addEventListener("click", function () {
     var t = new Date();
     state.viewYear = t.getFullYear();
     state.viewMonth = t.getMonth();
-    state.selected = toKey(t.getFullYear(), t.getMonth(), t.getDate());
-    renderGrid();
-    renderDetail();
+    var key = toKey(t.getFullYear(), t.getMonth(), t.getDate());
+    selectedDates = Object.create(null);
+    selectedDates[key] = true;
+    focusDate = key;
+    selectionAnchor = key;
+    refreshUi();
   });
 
-  els.btnSync.addEventListener("click", function () {
-    pullRemote().then(function () {
-      return pushRemote();
-    });
-  });
-
-  els.eventForm.addEventListener("submit", function (e) {
+  els.memoForm.addEventListener("submit", function (e) {
     e.preventDefault();
-    if (!state.selected) return;
-    var fd = new FormData(els.eventForm);
-    var title = String(fd.get("title") || "").trim();
-    var summary = String(fd.get("summary") || "").trim();
-    var time = String(fd.get("time") || "").trim();
-    var color = String(fd.get("color") || DEFAULT_HIGHLIGHT).trim();
-    if (!/^#[0-9A-Fa-f]{6}$/.test(color)) color = DEFAULT_HIGHLIGHT;
-    if (!title) return;
+    var memo = String(els.memoInput.value || "").trim();
+    if (!memo) return;
 
-    var list = getEventsForDay(state.selected);
-    list.push({
-      id: Date.now() + "-" + Math.random().toString(36).slice(2, 8),
-      title: title,
-      summary: summary,
-      time: time || "",
-      color: color,
-      done: false,
+    var targets = getTargetsForMemo();
+    if (targets.length === 0) return;
+
+    var color = String(els.hiddenColor.value || DEFAULT_HIGHLIGHT).trim();
+    if (!/^#[0-9A-Fa-f]{6}$/.test(color)) color = DEFAULT_HIGHLIGHT;
+
+    var lineId =
+      Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+
+    var map = JSON.parse(JSON.stringify(readAll()));
+    targets.forEach(function (key) {
+      var list = Array.isArray(map[key]) ? map[key].slice() : [];
+      list.push({
+        id:
+          lineId +
+          "-" +
+          key +
+          "-" +
+          Math.random().toString(36).slice(2, 6),
+        lineId: lineId,
+        title: memo,
+        summary: "",
+        time: "",
+        color: color,
+        done: false,
+      });
+      map[key] = list;
     });
-    setEventsForDay(state.selected, list);
-    els.eventForm.reset();
-    var firstColor = els.eventForm.querySelector(
-      'input[name="color"][value="' + DEFAULT_HIGHLIGHT + '"]'
-    );
-    if (firstColor) firstColor.checked = true;
+
+    els.memoInput.value = "";
+    writeAll(map);
+  });
+
+  document.querySelectorAll(".color-chip").forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      var col = chip.getAttribute("data-color") || DEFAULT_HIGHLIGHT;
+      els.hiddenColor.value = col;
+      document.querySelectorAll(".color-chip").forEach(function (c) {
+        c.classList.remove("color-chip--active");
+        c.setAttribute("aria-pressed", "false");
+      });
+      chip.classList.add("color-chip--active");
+      chip.setAttribute("aria-pressed", "true");
+    });
   });
 
   eventsCache = loadLocalObject();
-  renderGrid();
-  renderDetail();
+  refreshUi();
 
   if (!SYNC_URL) {
     setSyncStatus();
-    if (els.btnSync) els.btnSync.hidden = true;
   } else {
     setSyncStatus("loading");
     pullRemote();
