@@ -486,14 +486,19 @@
       row.className = "masthead-memo-item__row";
 
       var lab = document.createElement("label");
-      lab.className = "masthead-memo-item__check";
+      lab.className = "checkbox-pretty";
       var cb = document.createElement("input");
       cb.type = "checkbox";
       cb.checked = !!ev.done;
       cb.addEventListener("change", function () {
         applyLineDone(ev.lineId, cb.checked);
       });
+      var cbBox = document.createElement("span");
+      cbBox.className = "checkbox-pretty__box";
+      cbBox.innerHTML =
+        '<svg class="checkbox-pretty__icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" d="M20 6L9 17l-5-5"/></svg>';
       lab.appendChild(cb);
+      lab.appendChild(cbBox);
 
       var stripe = document.createElement("span");
       stripe.className = "masthead-memo-item__stripe";
@@ -508,8 +513,10 @@
 
       var del = document.createElement("button");
       del.type = "button";
-      del.className = "btn btn--danger";
-      del.textContent = "삭제";
+      del.className = "btn-trash";
+      del.setAttribute("aria-label", "삭제");
+      del.innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>';
       del.addEventListener("click", function () {
         deleteLine(ev.lineId);
       });
@@ -713,6 +720,8 @@
     });
 
     els.memoInput.value = "";
+    focusDate = targets[targets.length - 1];
+    selectedDates = Object.create(null);
     writeAll(map);
   });
 

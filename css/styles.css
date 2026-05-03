@@ -28,7 +28,9 @@
   --font-sans: "IBM Plex Sans KR", system-ui, -apple-system, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --transition: 160ms ease;
-  --grid-gap: 6px;
+  --pick-bg: #dbeafe;
+  --pick-bg-hover: #cfe8fc;
+  --cell-hover: #eef2f7;
 }
 
 *,
@@ -127,11 +129,11 @@ body {
 }
 
 .compact-period__label {
-  font-size: 0.9375rem;
-  font-weight: 600;
+  font-size: 1.0625rem;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-  letter-spacing: -0.01em;
+  color: var(--text);
+  letter-spacing: -0.02em;
 }
 
 .compact-period__tools {
@@ -204,18 +206,102 @@ body {
   gap: 0;
 }
 
-.masthead-memo-item__check {
-  display: flex;
+.checkbox-pretty {
+  position: relative;
+  display: inline-flex;
   align-items: flex-start;
-  padding: 0.65rem 0 0.65rem 0.65rem;
+  padding: 0.6rem 0 0.6rem 0.6rem;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
-.masthead-memo-item__check input {
-  width: 1.1rem;
-  height: 1.1rem;
-  accent-color: var(--accent);
+.checkbox-pretty input {
+  position: absolute;
+  left: 0.6rem;
+  top: 0.6rem;
+  width: 1.375rem;
+  height: 1.375rem;
+  margin: 0;
+  opacity: 0.01;
   cursor: pointer;
+  z-index: 2;
+}
+
+.checkbox-pretty__box {
+  pointer-events: none;
+  width: 1.375rem;
+  height: 1.375rem;
+  border-radius: 8px;
+  border: 2px solid #cbd5e1;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    border-color var(--transition),
+    background var(--transition),
+    box-shadow var(--transition);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+.checkbox-pretty__icon {
+  width: 0.78rem;
+  height: 0.78rem;
+  color: #fff;
+  opacity: 0;
+  transform: scale(0.85);
+  transition:
+    opacity var(--transition),
+    transform var(--transition);
+}
+
+.checkbox-pretty input:checked + .checkbox-pretty__box {
+  background: linear-gradient(155deg, #7dd3fc, #3b82f6);
+  border-color: #2563eb;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.28);
+}
+
+.checkbox-pretty input:checked + .checkbox-pretty__box .checkbox-pretty__icon {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.checkbox-pretty input:focus-visible + .checkbox-pretty__box {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+.masthead-memo-item--done .checkbox-pretty__box {
+  opacity: 0.85;
+}
+
+.btn-trash {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  margin: 0.45rem 0.45rem 0.45rem 0;
+  padding: 0;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color var(--transition),
+    background var(--transition);
+}
+
+.btn-trash:hover {
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.09);
+}
+
+.btn-trash:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .masthead-memo-item__stripe {
@@ -239,9 +325,6 @@ body {
   word-break: break-word;
 }
 
-.masthead-memo-item .btn--danger {
-  margin: 0.55rem 0.55rem 0.55rem 0;
-}
 
 /* Buttons */
 
@@ -337,8 +420,8 @@ body {
 .weekdays {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: var(--grid-gap);
-  margin-bottom: 0.45rem;
+  gap: 0;
+  margin-bottom: 0.35rem;
 }
 
 .weekdays__cell {
@@ -365,85 +448,92 @@ body {
 }
 
 .calendar-week-pack {
-  margin-bottom: 2px;
+  position: relative;
+  margin-bottom: 0;
 }
 
 .calendar-week-pack__cells {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: var(--grid-gap);
-  grid-auto-rows: minmax(120px, auto);
+  gap: 0;
+  grid-auto-rows: minmax(118px, auto);
   position: relative;
-  z-index: 1;
+  z-index: 2;
+  padding-bottom: 11px;
 }
 
 .calendar-week-pack__streaks {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 10px;
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: var(--grid-gap);
-  height: 12px;
-  margin-top: -14px;
-  margin-bottom: 10px;
-  position: relative;
-  z-index: 0;
+  gap: 0;
+  z-index: 8;
   pointer-events: none;
 }
 
 .calendar-streak-segment {
   height: 10px;
   align-self: end;
-  border-radius: 999px;
-  opacity: 0.95;
-  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.06);
+  border-radius: 4px;
+  opacity: 0.96;
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.07);
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
 .calendar-streak-segment--selection {
-  height: 9px;
-  z-index: 0;
+  z-index: 1;
   opacity: 1;
+  height: 10px;
   background: linear-gradient(
     180deg,
-    rgba(148, 163, 184, 0.35),
-    rgba(100, 116, 139, 0.55)
+    rgba(186, 230, 253, 0.95),
+    rgba(125, 211, 252, 0.98)
   );
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
 }
 
 .calendar-streak-segment--done {
-  opacity: 0.38;
+  opacity: 0.42;
 }
 
 .grid__cell {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
+  border: none;
+  border-radius: 0;
   background: #ffffff;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  padding: 6px 6px 10px;
+  padding: 6px 5px 11px;
   cursor: pointer;
   text-align: left;
   font-family: inherit;
-  transition: border-color var(--transition), box-shadow var(--transition);
+  transition: background var(--transition);
 }
 
 .grid__cell:hover:not(.grid__cell--outside):not(:disabled) {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-sm);
+  background: var(--cell-hover);
 }
 
 .grid__cell:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  z-index: 2;
+  outline: 2px solid #64748b;
+  outline-offset: -2px;
+  z-index: 4;
+  position: relative;
 }
 
 .grid__cell--outside {
   background: var(--bg-cell-outside);
-  opacity: 0.95;
+  opacity: 1;
   cursor: default;
+}
+
+.grid__cell--outside:hover {
+  background: var(--bg-cell-outside);
 }
 
 .grid__cell--today .grid__cell-num {
@@ -451,12 +541,17 @@ body {
 }
 
 .grid__cell--focus {
-  box-shadow: 0 0 0 2px rgba(51, 65, 85, 0.35);
+  box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.45);
+  position: relative;
+  z-index: 3;
 }
 
 .grid__cell--picked {
-  outline: 2px dashed rgba(100, 116, 139, 0.85);
-  outline-offset: -2px;
+  background: var(--pick-bg) !important;
+}
+
+.grid__cell--picked:hover:not(.grid__cell--outside):not(:disabled) {
+  background: var(--pick-bg-hover) !important;
 }
 
 .grid__cell--sun .grid__cell-num {
@@ -480,6 +575,7 @@ body {
   flex: 1;
   min-height: 0;
   margin-top: 4px;
+  padding-bottom: 2px;
 }
 
 .grid__cell-summaries {
@@ -490,7 +586,7 @@ body {
 }
 
 .grid__summary-line {
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: var(--text);
   line-height: 1.28;
