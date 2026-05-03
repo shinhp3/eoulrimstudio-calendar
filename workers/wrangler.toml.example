@@ -1,0 +1,10 @@
+# 사용법: wrangler.toml 로 복사한 뒤 name / KV id 를 채우고 배포
+#   cp wrangler.toml.example wrangler.toml
+
+name = "eoulrimstudio-upload"
+main = "calendar-sync.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "CALENDAR_KV"
+id = "YOUR_KV_NAMESPACE_ID"

@@ -1,7 +1,19 @@
 (function () {
   "use strict";
 
-  var STORAGE_KEY = "eoulrim_calendar_events_v1";
+  var STORAGE_KEY = "eoulrim_calendar_events_v2";
+  var LEGACY_STORAGE_KEY = "eoulrim_calendar_events_v1";
+  var DEFAULT_HIGHLIGHT = "#fde047";
+
+  var SYNC_URL = (function () {
+    var m = document.querySelector('meta[name="calendar-sync-url"]');
+    return m ? String(m.getAttribute("content") || "").trim() : "";
+  })();
+
+  /** @type {Record<string, unknown[]> | null} */
+  var eventsCache = null;
+  var pushTimer = null;
+  var pushInFlight = false;
 
   /** @type {{ viewYear: number, viewMonth: number, selected: string | null }} */
   var state = {
@@ -23,47 +35,88 @@
     return { y: p[0], m: p[1] - 1, d: p[2] };
   }
 
-  function loadEvents() {
+  function loadLocalObject() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return {};
-      var parsed = JSON.parse(raw);
-      return typeof parsed === "object" && parsed !== null ? parsed : {};
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+          return /** @type {Record<string, unknown[]>} */ (parsed);
+        }
+      }
+      var leg = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (leg) {
+        var oldMap = JSON.parse(leg);
+        if (typeof oldMap === "object" && oldMap !== null && !Array.isArray(oldMap)) {
+          saveLocalObject(/** @type {Record<string, unknown[]>} */ (oldMap));
+          localStorage.removeItem(LEGACY_STORAGE_KEY);
+          return /** @type {Record<string, unknown[]>} */ (oldMap);
+        }
+      }
     } catch (e) {
-      return {};
+      /* ignore */
     }
+    return {};
   }
 
-  function saveEvents(map) {
+  function saveLocalObject(map) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+  }
+
+  function readAll() {
+    if (!eventsCache) eventsCache = loadLocalObject();
+    return eventsCache;
+  }
+
+  function writeAll(map) {
+    eventsCache = map;
+    saveLocalObject(map);
+    renderGrid();
+    renderDetail();
+    schedulePush();
   }
 
   function normalizeEvent(ev, i) {
     if (!ev || typeof ev !== "object") return null;
     var title = String(ev.title || "").trim();
     if (!title) return null;
+    var summary = String(ev.summary || "").trim();
+    var c = String(ev.color || "").trim();
+    if (!/^#[0-9A-Fa-f]{6}$/.test(c)) c = DEFAULT_HIGHLIGHT;
     return {
       id:
         typeof ev.id === "string"
           ? ev.id
           : "legacy-" + i + "-" + title + "-" + String(ev.time || ""),
       title: title,
+      summary: summary,
       time: ev.time ? String(ev.time) : "",
+      color: c,
+      done: !!ev.done,
     };
   }
 
   function getEventsForDay(key) {
-    var all = loadEvents();
+    var all = readAll();
     var list = all[key];
     if (!Array.isArray(list)) return [];
     return list.map(normalizeEvent).filter(Boolean);
   }
 
   function setEventsForDay(key, list) {
-    var all = loadEvents();
-    if (list.length === 0) delete all[key];
-    else all[key] = list;
-    saveEvents(all);
+    var map = JSON.parse(JSON.stringify(readAll()));
+    if (list.length === 0) delete map[key];
+    else map[key] = list;
+    writeAll(map);
+  }
+
+  function sortEventsForDisplay(list) {
+    return list.slice().sort(function (a, b) {
+      if (!!a.done !== !!b.done) return a.done ? 1 : -1;
+      var ta = a.time || "";
+      var tb = b.time || "";
+      return ta.localeCompare(tb);
+    });
   }
 
   function formatSelectedLabel(key) {
@@ -136,11 +189,77 @@
     btnPrev: document.getElementById("btnPrev"),
     btnNext: document.getElementById("btnNext"),
     btnToday: document.getElementById("btnToday"),
+    btnSync: document.getElementById("btnSync"),
+    syncStatus: document.getElementById("syncStatus"),
     selectedDateLabel: document.getElementById("selectedDateLabel"),
     eventForm: document.getElementById("eventForm"),
     eventList: document.getElementById("eventList"),
     eventEmpty: document.getElementById("eventEmpty"),
   };
+
+  function setSyncStatus(mode) {
+    if (!els.syncStatus) return;
+    if (!SYNC_URL) {
+      els.syncStatus.textContent = "동기화 없음 · 이 기기에만 저장";
+      return;
+    }
+    if (mode === "server") {
+      els.syncStatus.textContent =
+        "서버 동기화 · 같은 주소를 연 사람과 목록이 같습니다";
+    } else if (mode === "loading") {
+      els.syncStatus.textContent = "서버에서 불러오는 중…";
+    } else {
+      els.syncStatus.textContent =
+        "서버와 연결되지 않음 · 로컬만 저장 (동기화 버튼으로 재시도)";
+    }
+  }
+
+  async function pullRemote() {
+    if (!SYNC_URL) return;
+    setSyncStatus("loading");
+    try {
+      var res = await fetch(SYNC_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error(String(res.status));
+      var data = await res.json();
+      if (typeof data !== "object" || data === null || Array.isArray(data)) {
+        throw new Error("bad payload");
+      }
+      eventsCache = /** @type {Record<string, unknown[]>} */ (data);
+      saveLocalObject(eventsCache);
+      renderGrid();
+      renderDetail();
+      setSyncStatus("server");
+    } catch (e) {
+      setSyncStatus("offline");
+    }
+  }
+
+  function schedulePush() {
+    if (!SYNC_URL) return;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(function () {
+      pushRemote();
+    }, 700);
+  }
+
+  async function pushRemote() {
+    if (!SYNC_URL || pushInFlight) return;
+    pushInFlight = true;
+    try {
+      var body = JSON.stringify(readAll());
+      var res = await fetch(SYNC_URL, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: body,
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      setSyncStatus("server");
+    } catch (e) {
+      setSyncStatus("offline");
+    } finally {
+      pushInFlight = false;
+    }
+  }
 
   function isToday(y, m, d) {
     var t = new Date();
@@ -160,7 +279,7 @@
 
     var cells = buildMonthCells(y, m);
     var frag = document.createDocumentFragment();
-    var all = loadEvents();
+    var all = readAll();
 
     cells.forEach(function (cell) {
       var key = toKey(cell.y, cell.m, cell.d);
@@ -191,29 +310,53 @@
       var normalizedCell = Array.isArray(rawList)
         ? rawList.map(normalizeEvent).filter(Boolean)
         : [];
-      if (normalizedCell.length > 0 && !cell.outside) {
-        btn.classList.add("grid__cell--has-events");
-        var eventsWrap = document.createElement("div");
-        eventsWrap.className = "grid__cell-events";
-        var maxChips = 3;
-        var slice = normalizedCell.slice(0, maxChips);
-        slice.forEach(function (ev) {
-          var chip = document.createElement("span");
-          chip.className = "grid__event-chip";
-          chip.textContent = truncate(ev.title, 16);
-          chip.title =
-            ev.title + (ev.time ? " · " + ev.time : "");
-          eventsWrap.appendChild(chip);
+      var sorted = sortEventsForDisplay(normalizedCell);
+
+      if (sorted.length > 0 && !cell.outside) {
+        btn.classList.add("grid__cell--has-items");
+
+        var bodyWrap = document.createElement("div");
+        bodyWrap.className = "grid__cell-body";
+
+        var sums = document.createElement("div");
+        sums.className = "grid__cell-summaries";
+        var maxLines = 4;
+        sorted.slice(0, maxLines).forEach(function (ev) {
+          var line = document.createElement("span");
+          line.className =
+            "grid__summary-line" +
+            (ev.done ? " grid__summary-line--done" : "");
+          line.textContent = truncate(ev.summary || ev.title, 18);
+          line.title = ev.title + (ev.time ? " · " + ev.time : "");
+          sums.appendChild(line);
         });
-        var extra = normalizedCell.length - maxChips;
-        if (extra > 0) {
-          var more = document.createElement("span");
-          more.className = "grid__event-more";
-          more.textContent = "+" + extra;
-          more.title = extra + "개 더 있음";
-          eventsWrap.appendChild(more);
+        if (sorted.length > maxLines) {
+          var moreSum = document.createElement("span");
+          moreSum.className = "grid__summary-more";
+          moreSum.textContent = "+" + (sorted.length - maxLines);
+          sums.appendChild(moreSum);
         }
-        btn.appendChild(eventsWrap);
+        bodyWrap.appendChild(sums);
+        btn.appendChild(bodyWrap);
+
+        var hl = document.createElement("div");
+        hl.className = "grid__cell-highlights";
+        var maxBars = 8;
+        sorted.slice(0, maxBars).forEach(function (ev) {
+          var bar = document.createElement("span");
+          bar.className =
+            "grid__highlight-bar" +
+            (ev.done ? " grid__highlight-bar--done" : "");
+          bar.style.backgroundColor = ev.color;
+          hl.appendChild(bar);
+        });
+        if (sorted.length > maxBars) {
+          var tailBar = document.createElement("span");
+          tailBar.className = "grid__highlight-bar grid__highlight-bar--more";
+          tailBar.textContent = "+" + (sorted.length - maxBars);
+          hl.appendChild(tailBar);
+        }
+        btn.appendChild(hl);
       }
 
       if (!cell.outside) {
@@ -239,68 +382,100 @@
 
     if (!state.selected) {
       els.eventEmpty.textContent =
-        "달력에서 날짜를 선택하면 일정을 추가할 수 있습니다.";
+        "달력에서 날짜를 선택하면 할 일을 추가할 수 있습니다.";
       els.eventEmpty.classList.remove("is-hidden");
       els.eventForm.querySelector("[name=title]").disabled = true;
+      els.eventForm.querySelector("[name=summary]").disabled = true;
       els.eventForm.querySelector("[name=time]").disabled = true;
+      els.eventForm.querySelectorAll('input[name="color"]').forEach(function (r) {
+        r.disabled = true;
+      });
       els.eventForm.querySelector("button[type=submit]").disabled = true;
       return;
     }
 
     els.eventForm.querySelector("[name=title]").disabled = false;
+    els.eventForm.querySelector("[name=summary]").disabled = false;
     els.eventForm.querySelector("[name=time]").disabled = false;
+    els.eventForm.querySelectorAll('input[name="color"]').forEach(function (r) {
+      r.disabled = false;
+    });
     els.eventForm.querySelector("button[type=submit]").disabled = false;
 
-    var items = getEventsForDay(state.selected);
+    var items = sortEventsForDisplay(getEventsForDay(state.selected));
     if (items.length === 0) {
-      els.eventEmpty.textContent = "등록된 일정이 없습니다.";
+      els.eventEmpty.textContent = "등록된 할 일이 없습니다.";
       els.eventEmpty.classList.remove("is-hidden");
       return;
     }
 
     els.eventEmpty.classList.add("is-hidden");
 
-    items
-      .slice()
-      .sort(function (a, b) {
-        var ta = a.time || "";
-        var tb = b.time || "";
-        return ta.localeCompare(tb);
-      })
-      .forEach(function (ev) {
-        var li = document.createElement("li");
-        li.className = "event-item";
+    items.forEach(function (ev) {
+      var li = document.createElement("li");
+      li.className =
+        "event-item" + (ev.done ? " event-item--done" : "");
 
-        var body = document.createElement("div");
-        body.className = "event-item__body";
-        var h = document.createElement("p");
-        h.className = "event-item__title";
-        h.textContent = ev.title;
-        body.appendChild(h);
-        if (ev.time) {
-          var t = document.createElement("p");
-          t.className = "event-item__time";
-          t.textContent = ev.time;
-          body.appendChild(t);
-        }
-
-        var del = document.createElement("button");
-        del.type = "button";
-        del.className = "btn btn--danger";
-        del.textContent = "삭제";
-        del.addEventListener("click", function () {
-          var list = getEventsForDay(state.selected).filter(function (x) {
-            return x.id !== ev.id;
-          });
-          setEventsForDay(state.selected, list);
-          renderGrid();
-          renderDetail();
+      var mark = document.createElement("label");
+      mark.className = "event-item__check";
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !!ev.done;
+      cb.title = "완료 표시";
+      cb.addEventListener("change", function () {
+        var list = getEventsForDay(state.selected);
+        var next = list.map(function (x) {
+          if (x.id !== ev.id) return x;
+          return Object.assign({}, x, { done: cb.checked });
         });
-
-        li.appendChild(body);
-        li.appendChild(del);
-        els.eventList.appendChild(li);
+        setEventsForDay(state.selected, next);
       });
+      mark.appendChild(cb);
+
+      var stripe = document.createElement("span");
+      stripe.className = "event-item__stripe";
+      stripe.style.backgroundColor = ev.color;
+
+      var body = document.createElement("div");
+      body.className = "event-item__body";
+      var h = document.createElement("p");
+      h.className = "event-item__title";
+      h.textContent = ev.title;
+      body.appendChild(h);
+      var sum = document.createElement("p");
+      sum.className = "event-item__summary";
+      if (ev.summary) {
+        sum.textContent = ev.summary;
+        body.appendChild(sum);
+      }
+      if (ev.time) {
+        var t = document.createElement("p");
+        t.className = "event-item__time";
+        t.textContent = ev.time;
+        body.appendChild(t);
+      }
+
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "btn btn--danger";
+      del.textContent = "삭제";
+      del.addEventListener("click", function () {
+        var list = getEventsForDay(state.selected).filter(function (x) {
+          return x.id !== ev.id;
+        });
+        setEventsForDay(state.selected, list);
+      });
+
+      var row = document.createElement("div");
+      row.className = "event-item__row";
+      row.appendChild(mark);
+      row.appendChild(stripe);
+      row.appendChild(body);
+      row.appendChild(del);
+
+      li.appendChild(row);
+      els.eventList.appendChild(li);
+    });
   }
 
   els.btnPrev.addEventListener("click", function () {
@@ -330,26 +505,50 @@
     renderDetail();
   });
 
+  els.btnSync.addEventListener("click", function () {
+    pullRemote().then(function () {
+      return pushRemote();
+    });
+  });
+
   els.eventForm.addEventListener("submit", function (e) {
     e.preventDefault();
     if (!state.selected) return;
     var fd = new FormData(els.eventForm);
     var title = String(fd.get("title") || "").trim();
+    var summary = String(fd.get("summary") || "").trim();
     var time = String(fd.get("time") || "").trim();
+    var color = String(fd.get("color") || DEFAULT_HIGHLIGHT).trim();
+    if (!/^#[0-9A-Fa-f]{6}$/.test(color)) color = DEFAULT_HIGHLIGHT;
     if (!title) return;
 
     var list = getEventsForDay(state.selected);
     list.push({
       id: Date.now() + "-" + Math.random().toString(36).slice(2, 8),
       title: title,
+      summary: summary,
       time: time || "",
+      color: color,
+      done: false,
     });
     setEventsForDay(state.selected, list);
     els.eventForm.reset();
-    renderGrid();
-    renderDetail();
+    var firstColor = els.eventForm.querySelector(
+      'input[name="color"][value="' + DEFAULT_HIGHLIGHT + '"]'
+    );
+    if (firstColor) firstColor.checked = true;
   });
 
+  eventsCache = loadLocalObject();
   renderGrid();
   renderDetail();
+
+  if (!SYNC_URL) {
+    setSyncStatus();
+    if (els.btnSync) els.btnSync.hidden = true;
+  } else {
+    setSyncStatus("loading");
+    pullRemote();
+    setInterval(pullRemote, 45000);
+  }
 })();

@@ -3,8 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="월별 일정 관리 캘린더" />
-  <title>Eoulrim Calendar</title>
+  <meta name="description" content="월별 할 일 · 일정 캘린더" />
+  <!-- 원격 동기화 Worker 주소 (배포 후 실제 경로로 수정). 비우면 이 브라우저 로컬만 사용 -->
+  <meta name="calendar-sync-url" content="https://eoulrimstudio-upload.eoulrimstudio.workers.dev/api/calendar-events" />
+  <title>Eoulrim Calendar · 할 일</title>
   <link rel="stylesheet" href="css/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -16,8 +18,8 @@
       <div class="header__brand">
         <span class="header__logo" aria-hidden="true"></span>
         <div>
-          <h1 class="header__title">캘린더</h1>
-          <p class="header__subtitle">월별 보기 · 브라우저에 일정 저장</p>
+          <h1 class="header__title">할 일 캘린더</h1>
+          <p class="header__subtitle">달력에서 날짜를 고르고 체크리스트처럼 관리합니다</p>
         </div>
       </div>
     </header>
@@ -28,13 +30,16 @@
 
         <div class="calendar-masthead">
           <div class="calendar-masthead__display">
-            <p class="calendar-masthead__year-line">
+            <p class="calendar-masthead__title-line">
               <span class="calendar-masthead__year" id="viewYearLabel"></span>
-              <span class="calendar-masthead__suffix">년</span>
+              <span class="calendar-masthead__suffix-inline">년</span>
+              <span class="calendar-masthead__sep" aria-hidden="true">·</span>
+              <time class="calendar-masthead__month" id="viewMonthLabel" datetime=""></time>
             </p>
-            <time class="calendar-masthead__month-line" id="viewMonthLabel" datetime=""></time>
+            <p class="calendar-masthead__sync" id="syncStatus" aria-live="polite"></p>
           </div>
           <div class="calendar-masthead__toolbar">
+            <button type="button" class="btn btn--ghost" id="btnSync" aria-label="지금 동기화">동기화</button>
             <button type="button" class="btn btn--ghost" id="btnToday" aria-label="오늘로 이동">오늘</button>
             <div class="month-nav" role="group" aria-label="월 이동">
               <button type="button" class="btn btn--icon" id="btnPrev" aria-label="이전 달">
@@ -65,26 +70,59 @@
 
         <form class="event-form" id="eventForm" autocomplete="off">
           <label class="field">
-            <span class="field__label">일정 제목</span>
-            <input type="text" name="title" class="input" placeholder="예: 기획 회의" maxlength="120" required />
+            <span class="field__label">할 일 제목</span>
+            <input type="text" name="title" class="input" placeholder="예: 보고서 초안" maxlength="120" required />
+          </label>
+          <label class="field">
+            <span class="field__label">한 줄 요약 (달력 칸에 짧게 표시)</span>
+            <input type="text" name="summary" class="input" placeholder="비우면 제목 앞부분을 사용" maxlength="48" />
           </label>
           <label class="field">
             <span class="field__label">시간 (선택)</span>
             <input type="time" name="time" class="input input--time" />
           </label>
-          <button type="submit" class="btn btn--primary">일정 추가</button>
+          <fieldset class="field field--colors">
+            <legend class="field__label">형광펜 색</legend>
+            <div class="color-palette" role="radiogroup" aria-label="형광펜 색 선택">
+              <label class="color-swatch" title="노랑">
+                <input type="radio" name="color" value="#fde047" checked />
+                <span class="color-swatch__dot" style="--swatch: #fde047"></span>
+              </label>
+              <label class="color-swatch" title="핑크">
+                <input type="radio" name="color" value="#fda4af" />
+                <span class="color-swatch__dot" style="--swatch: #fda4af"></span>
+              </label>
+              <label class="color-swatch" title="민트">
+                <input type="radio" name="color" value="#86efac" />
+                <span class="color-swatch__dot" style="--swatch: #86efac"></span>
+              </label>
+              <label class="color-swatch" title="하늘">
+                <input type="radio" name="color" value="#7dd3fc" />
+                <span class="color-swatch__dot" style="--swatch: #7dd3fc"></span>
+              </label>
+              <label class="color-swatch" title="오렌지">
+                <input type="radio" name="color" value="#fdba74" />
+                <span class="color-swatch__dot" style="--swatch: #fdba74"></span>
+              </label>
+              <label class="color-swatch" title="보라">
+                <input type="radio" name="color" value="#c4b5fd" />
+                <span class="color-swatch__dot" style="--swatch: #c4b5fd"></span>
+              </label>
+            </div>
+          </fieldset>
+          <button type="submit" class="btn btn--primary">할 일 추가</button>
         </form>
 
         <div class="event-list-wrap">
-          <h3 class="event-list__heading">이 날의 일정</h3>
+          <h3 class="event-list__heading">이 날의 할 일</h3>
           <ul class="event-list" id="eventList"></ul>
-          <p class="event-list__empty" id="eventEmpty">등록된 일정이 없습니다.</p>
+          <p class="event-list__empty" id="eventEmpty">등록된 할 일이 없습니다.</p>
         </div>
       </aside>
     </main>
 
     <footer class="footer">
-      <p>데이터는 이 브라우저에만 저장됩니다.</p>
+      <p id="footerNote">동기화 주소가 설정되어 있으면 같은 데이터가 다른 사람 화면에도 보입니다. 설정은 상단 동기화 상태를 참고하세요.</p>
     </footer>
   </div>
 
