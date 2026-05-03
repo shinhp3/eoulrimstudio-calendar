@@ -558,9 +558,7 @@
           var maxLines = 4;
           sorted.slice(0, maxLines).forEach(function (ev) {
             var line = document.createElement("span");
-            line.className =
-              "grid__summary-line" +
-              (ev.done ? " grid__summary-line--done" : "");
+            line.className = "grid__summary-line";
             line.textContent = truncate(ev.summary || ev.title, 20);
             line.title = ev.title;
             sums.appendChild(line);
