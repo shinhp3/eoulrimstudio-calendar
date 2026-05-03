@@ -21,9 +21,6 @@
   /** @type {string | null} */
   var focusDate = null;
 
-  /** @type {string | null} */
-  var selectionAnchor = null;
-
   var state = {
     viewYear: new Date().getFullYear(),
     viewMonth: new Date().getMonth(),
@@ -120,22 +117,6 @@
     if (keys.length > 0) return keys.slice().sort();
     if (focusDate) return [focusDate];
     return [];
-  }
-
-  function enumerateKeysBetween(keyA, keyB) {
-    var order = keyA <= keyB ? 1 : -1;
-    var startKey = order === 1 ? keyA : keyB;
-    var endKey = order === 1 ? keyB : keyA;
-    var out = [];
-    var cur = parseKey(startKey);
-    for (var guard = 0; guard < 500; guard++) {
-      var k = toKey(cur.y, cur.m, cur.d);
-      out.push(k);
-      if (k === endKey) break;
-      var dt = new Date(cur.y, cur.m, cur.d + 1);
-      cur = { y: dt.getFullYear(), m: dt.getMonth(), d: dt.getDate() };
-    }
-    return out;
   }
 
   function toggleSelected(key) {
@@ -296,6 +277,36 @@
     return runs;
   }
 
+  /** 같은 주에서 선택만 되어 있고 칸 번호가 연속일 때 막대 하나로 묶음 */
+  function computeSelectionRuns(rowCells) {
+    var cols = [];
+    rowCells.forEach(function (rc) {
+      if (rc.outside) return;
+      if (!selectedDates[rc.key]) return;
+      cols.push(rc.col);
+    });
+    cols = cols
+      .filter(function (v, i, a) {
+        return a.indexOf(v) === i;
+      })
+      .sort(function (a, b) {
+        return a - b;
+      });
+    var runs = [];
+    var i = 0;
+    while (i < cols.length) {
+      var start = cols[i];
+      var j = i;
+      while (j + 1 < cols.length && cols[j + 1] === cols[j] + 1) j++;
+      runs.push({
+        startCol: start,
+        spanCols: cols[j] - start + 1,
+      });
+      i = j + 1;
+    }
+    return runs;
+  }
+
   var els = {
     shell: document.getElementById("calendarGridShell"),
     viewPeriodLabel: document.getElementById("viewPeriodLabel"),
@@ -419,7 +430,7 @@
     if (keys.length > 0) {
       lines.push("선택된 날짜 " + keys.length + "일 · 추가하면 모두에 같은 줄로 표시됩니다.");
     } else {
-      lines.push("날짜를 클릭해 선택합니다. Shift+클릭으로 범위를 한 번에 선택할 수 있어요.");
+      lines.push("날짜를 클릭할 때마다 선택이 더해지거나 빠집니다. 한 줄에서 붙어 있는 날은 아래 막대도 이어집니다.");
     }
     if (focusDate) {
       lines.push("포커스: " + formatFocusHeading(focusDate).replace(" 메모", ""));
@@ -522,7 +533,7 @@
     var all = readAll();
     var frag = document.createDocumentFragment();
 
-    for (var w = 0; w < 6; w++) {
+    for (let w = 0; w < 6; w++) {
       var pack = document.createElement("div");
       pack.className = "calendar-week-pack";
 
@@ -535,10 +546,10 @@
 
       var rowCells = [];
 
-      for (var c = 0; c < 7; c++) {
-        var idx = w * 7 + c;
-        var cell = cells[idx];
-        var key = toKey(cell.y, cell.m, cell.d);
+      for (let c = 0; c < 7; c++) {
+        let idx = w * 7 + c;
+        let cell = cells[idx];
+        let key = toKey(cell.y, cell.m, cell.d);
 
         rowCells.push({ key: key, outside: cell.outside, col: c });
 
@@ -597,16 +608,8 @@
         }
 
         if (!cell.outside) {
-          btn.addEventListener("click", function (e) {
-            var shift = !!e.shiftKey;
-            if (shift && selectionAnchor) {
-              enumerateKeysBetween(selectionAnchor, key).forEach(function (k) {
-                selectedDates[k] = true;
-              });
-            } else {
-              toggleSelected(key);
-              selectionAnchor = key;
-            }
+          btn.addEventListener("click", function () {
+            toggleSelected(key);
             focusDate = key;
             refreshUi();
           });
@@ -617,6 +620,15 @@
 
         rowEl.appendChild(btn);
       }
+
+      computeSelectionRuns(rowCells).forEach(function (run) {
+        var selSeg = document.createElement("span");
+        selSeg.className =
+          "calendar-streak-segment calendar-streak-segment--selection";
+        selSeg.style.gridColumn =
+          run.startCol + 1 + " / span " + run.spanCols;
+        streakLayer.appendChild(selSeg);
+      });
 
       var runs = computeStreakRuns(rowCells, all);
       runs.forEach(function (run) {
@@ -663,7 +675,6 @@
     selectedDates = Object.create(null);
     selectedDates[key] = true;
     focusDate = key;
-    selectionAnchor = key;
     refreshUi();
   });
 

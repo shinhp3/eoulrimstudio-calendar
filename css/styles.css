@@ -395,6 +395,20 @@ body {
   border-radius: 999px;
   opacity: 0.95;
   box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.06);
+  position: relative;
+  z-index: 1;
+}
+
+.calendar-streak-segment--selection {
+  height: 9px;
+  z-index: 0;
+  opacity: 1;
+  background: linear-gradient(
+    180deg,
+    rgba(148, 163, 184, 0.35),
+    rgba(100, 116, 139, 0.55)
+  );
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
 }
 
 .calendar-streak-segment--done {
