@@ -124,23 +124,6 @@
     else selectedDates[key] = true;
   }
 
-  function applyLineDone(lineId, done) {
-    var map = JSON.parse(JSON.stringify(readAll()));
-    Object.keys(map).forEach(function (key) {
-      var list = map[key];
-      if (!Array.isArray(list)) return;
-      map[key] = list.map(function (ev, idx) {
-        var n = normalizeEvent(ev, idx);
-        if (!n) return ev;
-        if (n.lineId === lineId) {
-          return Object.assign({}, ev, { done: done, lineId: n.lineId });
-        }
-        return ev;
-      });
-    });
-    writeAll(map);
-  }
-
   function deleteLine(lineId) {
     var map = JSON.parse(JSON.stringify(readAll()));
     Object.keys(map).forEach(function (key) {
@@ -164,10 +147,7 @@
 
   function sortEventsForDisplay(list) {
     return list.slice().sort(function (a, b) {
-      if (!!a.done !== !!b.done) return a.done ? 1 : -1;
-      var ta = a.time || "";
-      var tb = b.time || "";
-      return ta.localeCompare(tb);
+      return (a.title || "").localeCompare(b.title || "", "ko");
     });
   }
 
@@ -314,7 +294,9 @@
     btnNext: document.getElementById("btnNext"),
     btnToday: document.getElementById("btnToday"),
     syncStatus: document.getElementById("syncStatus"),
-    mastheadBoard: document.getElementById("mastheadBoard"),
+    dayMemoDateLabel: document.getElementById("dayMemoDateLabel"),
+    dayMemoList: document.getElementById("dayMemoList"),
+    dayMemoEmpty: document.getElementById("dayMemoEmpty"),
     selectionSummary: document.getElementById("selectionSummary"),
     memoForm: document.getElementById("memoForm"),
     memoInput: document.getElementById("memoInput"),
@@ -411,7 +393,7 @@
   function refreshUi() {
     renderPeriod();
     renderGrid();
-    renderMastheadBoard();
+    renderDayMemosPanel();
     renderSelectionSummary();
     syncMemoFormState();
   }
@@ -447,67 +429,49 @@
     });
   }
 
-  function renderMastheadBoard() {
-    els.mastheadBoard.innerHTML = "";
+  function renderDayMemosPanel() {
+    els.dayMemoList.innerHTML = "";
 
     if (!focusDate) {
-      var hint = document.createElement("p");
-      hint.className = "masthead-board__hint";
-      hint.textContent = "달력에서 날짜를 누르면 그날 메모가 여기 크게 보입니다.";
-      els.mastheadBoard.appendChild(hint);
+      els.dayMemoDateLabel.textContent = "";
+      els.dayMemoEmpty.textContent =
+        "달력에서 날짜를 눌러 메모를 확인하세요.";
+      els.dayMemoEmpty.classList.remove("is-hidden");
       return;
     }
 
-    var map = readAll();
-    var items = sortEventsForDisplay(normalizedListForKey(focusDate, map));
+    els.dayMemoDateLabel.textContent = formatFocusHeading(focusDate).replace(
+      " 메모",
+      ""
+    );
 
-    var title = document.createElement("p");
-    title.className = "masthead-board__heading";
-    title.textContent = formatFocusHeading(focusDate);
-    els.mastheadBoard.appendChild(title);
+    var items = sortEventsForDisplay(
+      normalizedListForKey(focusDate, readAll())
+    );
 
     if (items.length === 0) {
-      var empty = document.createElement("p");
-      empty.className = "masthead-board__hint";
-      empty.textContent = "이 날짜에는 메모가 없습니다.";
-      els.mastheadBoard.appendChild(empty);
+      els.dayMemoEmpty.textContent = "이 날짜에는 메모가 없습니다.";
+      els.dayMemoEmpty.classList.remove("is-hidden");
       return;
     }
 
-    var ul = document.createElement("ul");
-    ul.className = "masthead-memo-list";
+    els.dayMemoEmpty.classList.add("is-hidden");
 
     items.forEach(function (ev) {
       var li = document.createElement("li");
-      li.className =
-        "masthead-memo-item" + (ev.done ? " masthead-memo-item--done" : "");
+      li.className = "day-memo-item";
 
       var row = document.createElement("div");
-      row.className = "masthead-memo-item__row";
-
-      var lab = document.createElement("label");
-      lab.className = "checkbox-pretty";
-      var cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = !!ev.done;
-      cb.addEventListener("change", function () {
-        applyLineDone(ev.lineId, cb.checked);
-      });
-      var cbBox = document.createElement("span");
-      cbBox.className = "checkbox-pretty__box";
-      cbBox.innerHTML =
-        '<svg class="checkbox-pretty__icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" d="M20 6L9 17l-5-5"/></svg>';
-      lab.appendChild(cb);
-      lab.appendChild(cbBox);
+      row.className = "day-memo-item__row";
 
       var stripe = document.createElement("span");
-      stripe.className = "masthead-memo-item__stripe";
+      stripe.className = "day-memo-item__stripe";
       stripe.style.backgroundColor = ev.color;
 
       var body = document.createElement("div");
-      body.className = "masthead-memo-item__body";
+      body.className = "day-memo-item__body";
       var p = document.createElement("p");
-      p.className = "masthead-memo-item__text";
+      p.className = "day-memo-item__text";
       p.textContent = ev.title;
       body.appendChild(p);
 
@@ -521,16 +485,13 @@
         deleteLine(ev.lineId);
       });
 
-      row.appendChild(lab);
       row.appendChild(stripe);
       row.appendChild(body);
       row.appendChild(del);
 
       li.appendChild(row);
-      ul.appendChild(li);
+      els.dayMemoList.appendChild(li);
     });
-
-    els.mastheadBoard.appendChild(ul);
   }
 
   function renderGrid() {

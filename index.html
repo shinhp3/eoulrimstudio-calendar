@@ -38,10 +38,7 @@
           </div>
         </div>
 
-        <div class="masthead-board" aria-live="polite">
-          <div class="masthead-board__inner" id="mastheadBoard"></div>
-          <p class="masthead-board__sync" id="syncStatus"></p>
-        </div>
+        <p id="syncStatus" class="sync-strip" aria-live="polite"></p>
 
         <div class="weekdays" role="row">
           <span class="weekdays__cell weekdays__cell--weekend">일</span>
@@ -56,7 +53,14 @@
         <div class="calendar-grid-shell" id="calendarGridShell" role="application" aria-label="달력"></div>
       </section>
 
-      <aside class="detail-panel" aria-label="메모 입력">
+      <aside class="detail-panel" aria-label="메모">
+        <section class="day-memos" aria-labelledby="dayMemosHeading">
+          <h3 id="dayMemosHeading" class="day-memos__title">선택한 날 메모</h3>
+          <p class="day-memos__date" id="dayMemoDateLabel"></p>
+          <ul class="day-memo-list" id="dayMemoList"></ul>
+          <p class="day-memo-empty" id="dayMemoEmpty">달력에서 날짜를 눌러 메모를 확인하세요.</p>
+        </section>
+
         <p class="selection-summary" id="selectionSummary"></p>
 
         <form class="memo-form" id="memoForm" autocomplete="off">
