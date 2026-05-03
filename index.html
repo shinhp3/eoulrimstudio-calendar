@@ -14,13 +14,7 @@
 <body>
   <div class="app">
     <header class="header">
-      <div class="header__brand">
-        <span class="header__logo" aria-hidden="true"></span>
-        <div>
-          <h1 class="header__title">메모 캘린더</h1>
-          <p class="header__subtitle">날짜를 여러 개 고르고 한 번에 메모를 붙일 수 있어요</p>
-        </div>
-      </div>
+      
     </header>
 
     <main class="main">
@@ -28,10 +22,44 @@
         <h2 id="calendar-heading" class="visually-hidden">월간 달력</h2>
 
         <div class="compact-period">
-          <span id="viewPeriodLabel" class="compact-period__label"></span>
-          <div class="compact-period__tools">
+          <p class="compact-period__display" id="viewPeriodHeading">년 월</p>
+          <div class="compact-period__toolbar">
+            <label class="compact-period__multi">
+              <input type="checkbox" id="multiSelectToggle" />
+              <span>다중 선택</span>
+            </label>
             <button type="button" class="btn btn--ghost" id="btnToday">오늘</button>
-            <div class="month-nav" role="group" aria-label="월 이동">
+            <div class="period-picker">
+              <button
+                type="button"
+                class="btn btn--ghost"
+                id="periodPickerTrigger"
+                aria-expanded="false"
+                aria-haspopup="dialog"
+                aria-controls="periodPickerPopover"
+              >
+                날짜 설정
+              </button>
+              <div
+                id="periodPickerPopover"
+                class="period-picker__popover is-hidden"
+                role="dialog"
+                aria-label="년도와 월 선택"
+                aria-hidden="true"
+              >
+                <div class="period-picker__row">
+                  <label class="period-picker__field">
+                    <span class="period-picker__mini-label">년</span>
+                    <select id="periodYearSelect" class="period-picker__select" aria-label="년도"></select>
+                  </label>
+                  <label class="period-picker__field">
+                    <span class="period-picker__mini-label">월</span>
+                    <select id="periodMonthSelect" class="period-picker__select" aria-label="월"></select>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="month-nav" role="group" aria-label="한 칸씩 이동">
               <button type="button" class="btn btn--icon" id="btnPrev" aria-label="이전 달"><span aria-hidden="true">‹</span></button>
               <button type="button" class="btn btn--icon" id="btnNext" aria-label="다음 달"><span aria-hidden="true">›</span></button>
             </div>
@@ -53,16 +81,7 @@
         <div class="calendar-grid-shell" id="calendarGridShell" role="application" aria-label="달력"></div>
       </section>
 
-      <aside class="detail-panel" aria-label="메모">
-        <section class="day-memos" aria-labelledby="dayMemosHeading">
-          <h3 id="dayMemosHeading" class="day-memos__title">선택한 날 메모</h3>
-          <p class="day-memos__date" id="dayMemoDateLabel"></p>
-          <ul class="day-memo-list" id="dayMemoList"></ul>
-          <p class="day-memo-empty" id="dayMemoEmpty">달력에서 날짜를 눌러 메모를 확인하세요.</p>
-        </section>
-
-        <p class="selection-summary" id="selectionSummary"></p>
-
+      <aside class="detail-panel" aria-label="메모 작성 및 목록">
         <form class="memo-form" id="memoForm" autocomplete="off">
           <textarea
             name="memo"
@@ -70,7 +89,7 @@
             class="memo-input"
             rows="5"
             maxlength="2000"
-            placeholder="메모를 적고 색을 고른 뒤 추가하세요."
+            placeholder="메모 입력"
           ></textarea>
 
           <input type="hidden" name="color" id="hiddenColor" value="#fde047" />
@@ -84,14 +103,38 @@
             <button type="button" class="color-chip" style="background-color:#c4b5fd" data-color="#c4b5fd" aria-pressed="false" title="보라"></button>
           </div>
 
-          <button type="submit" class="btn btn--primary">선택한 날짜에 적용</button>
+          <button type="submit" class="btn btn--primary">메모 추가</button>
         </form>
+
+        <section class="day-memos" aria-label="선택 날짜별 메모">
+          <div class="day-memo-stacks" id="dayMemoStacks"></div>
+        </section>
       </aside>
     </main>
+  </div>
 
-    <footer class="footer">
-      <p>동기화 주소가 있으면 변경 사항이 자동으로 서버에 반영됩니다.</p>
-    </footer>
+  <div
+    id="scopeConfirmModal"
+    class="scope-modal is-hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="scopeModalTitle"
+    aria-hidden="true"
+  >
+    <div class="scope-modal__backdrop" id="scopeModalBackdrop" tabindex="-1"></div>
+    <div class="scope-modal__panel">
+      <header class="scope-modal__head">
+        <h2 id="scopeModalTitle" class="scope-modal__title"></h2>
+        <button type="button" class="scope-modal__cancel" id="scopeModalCancel" aria-label="취소하고 닫기">
+          취소
+        </button>
+      </header>
+      <p id="scopeModalMessage" class="scope-modal__text"></p>
+      <div class="scope-modal__actions">
+        <button type="button" class="btn btn--ghost scope-modal__action-btn" id="scopeModalThisDay">이 날짜만</button>
+        <button type="button" class="btn btn--primary scope-modal__action-btn" id="scopeModalAllDays">모든 날짜</button>
+      </div>
+    </div>
   </div>
 
   <script src="js/calendar.js"></script>

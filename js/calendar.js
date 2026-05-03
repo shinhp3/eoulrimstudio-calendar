@@ -21,6 +21,9 @@
   /** @type {string | null} */
   var focusDate = null;
 
+  /** false면 날짜 한 번에 하나만 선택 */
+  var multiSelectMode = false;
+
   var state = {
     viewYear: new Date().getFullYear(),
     viewMonth: new Date().getMonth(),
@@ -124,7 +127,45 @@
     else selectedDates[key] = true;
   }
 
-  function deleteLine(lineId) {
+  /** lineId가 등장하는 서로 다른 날짜 키 개수 */
+  function countDateKeysWithLineId(lineId) {
+    var map = readAll();
+    var n = 0;
+    Object.keys(map).forEach(function (key) {
+      var list = map[key];
+      if (!Array.isArray(list)) return;
+      for (var i = 0; i < list.length; i++) {
+        var ev = normalizeEvent(list[i], i);
+        if (ev && ev.lineId === lineId) {
+          n++;
+          return;
+        }
+      }
+    });
+    return n;
+  }
+
+  /** 같은 lineId가 여러 날에 있을 때, 각 날의 done이 모두 같은지 */
+  function lineIdDoneIsUniformAcrossDates(lineId) {
+    var map = readAll();
+    var seenDone = null;
+    var mixed = false;
+    Object.keys(map).forEach(function (key) {
+      var list = map[key];
+      if (!Array.isArray(list)) return;
+      for (var i = 0; i < list.length; i++) {
+        var n = normalizeEvent(list[i], i);
+        if (!n || n.lineId !== lineId) continue;
+        var d = !!n.done;
+        if (seenDone === null) seenDone = d;
+        else if (seenDone !== d) mixed = true;
+        break;
+      }
+    });
+    return !mixed;
+  }
+
+  function deleteLineAll(lineId) {
     var map = JSON.parse(JSON.stringify(readAll()));
     Object.keys(map).forEach(function (key) {
       var list = map[key];
@@ -140,14 +181,205 @@
     writeAll(map);
   }
 
-  function truncate(str, max) {
-    if (str.length <= max) return str;
-    return str.slice(0, Math.max(0, max - 1)) + "…";
+  function deleteLineForDate(lineId, dateKey) {
+    var map = JSON.parse(JSON.stringify(readAll()));
+    var list = map[dateKey];
+    if (!Array.isArray(list)) return;
+    var next = [];
+    list.forEach(function (ev, idx) {
+      var n = normalizeEvent(ev, idx);
+      if (!n || n.lineId !== lineId) next.push(ev);
+    });
+    if (next.length === 0) delete map[dateKey];
+    else map[dateKey] = next;
+    writeAll(map);
   }
 
-  function sortEventsForDisplay(list) {
-    return list.slice().sort(function (a, b) {
+  /** 미완료 위 · 완료(취소선) 아래 */
+  function sortDayMemosForPanel(list) {
+    var cmp = function (a, b) {
       return (a.title || "").localeCompare(b.title || "", "ko");
+    };
+    var active = list.filter(function (x) {
+      return !x.done;
+    });
+    var done = list.filter(function (x) {
+      return x.done;
+    });
+    active.sort(cmp);
+    done.sort(cmp);
+    return active.concat(done);
+  }
+
+  function toggleLineDoneAll(lineId) {
+    var map = JSON.parse(JSON.stringify(readAll()));
+    var seen = false;
+    var allDone = true;
+    Object.keys(map).forEach(function (key) {
+      var list = map[key];
+      if (!Array.isArray(list)) return;
+      list.forEach(function (ev, idx) {
+        var n = normalizeEvent(ev, idx);
+        if (!n || n.lineId !== lineId) return;
+        seen = true;
+        if (!n.done) allDone = false;
+      });
+    });
+    if (!seen) return;
+    var next = !allDone;
+    Object.keys(map).forEach(function (key) {
+      var list = map[key];
+      if (!Array.isArray(list)) return;
+      list.forEach(function (ev, idx) {
+        var n = normalizeEvent(ev, idx);
+        if (!n || n.lineId !== lineId) return;
+        ev.done = next;
+      });
+    });
+    writeAll(map);
+  }
+
+  function toggleLineDoneForDate(lineId, dateKey) {
+    var map = JSON.parse(JSON.stringify(readAll()));
+    var list = map[dateKey];
+    if (!Array.isArray(list)) return;
+    var seen = false;
+    var allDone = true;
+    list.forEach(function (ev, idx) {
+      var n = normalizeEvent(ev, idx);
+      if (!n || n.lineId !== lineId) return;
+      seen = true;
+      if (!n.done) allDone = false;
+    });
+    if (!seen) return;
+    var next = !allDone;
+    list.forEach(function (ev, idx) {
+      var n = normalizeEvent(ev, idx);
+      if (!n || n.lineId !== lineId) return;
+      ev.done = next;
+    });
+    map[dateKey] = list;
+    writeAll(map);
+  }
+
+  /** @type {{ kind: string, lineId: string, dateKey: string | null } | null} */
+  var pendingScopeAction = null;
+
+  function closeScopeModal() {
+    pendingScopeAction = null;
+    var modal = document.getElementById("scopeConfirmModal");
+    if (modal) {
+      modal.classList.add("is-hidden");
+      modal.setAttribute("aria-hidden", "true");
+    }
+    document.body.classList.remove("scope-modal-open");
+  }
+
+  function openScopeModal(kind, lineId, dateKey) {
+    pendingScopeAction = {
+      kind: kind,
+      lineId: lineId,
+      dateKey: dateKey || focusDate,
+    };
+    var modal = document.getElementById("scopeConfirmModal");
+    var title = document.getElementById("scopeModalTitle");
+    var msg = document.getElementById("scopeModalMessage");
+    var btnThis = document.getElementById("scopeModalThisDay");
+    var btnAll = document.getElementById("scopeModalAllDays");
+    if (!modal || !title || !msg || !btnThis || !btnAll) return;
+
+    btnThis.textContent = "이 날짜만";
+    btnAll.textContent = "모든 날짜";
+    btnThis.className = "btn btn--ghost scope-modal__action-btn";
+
+    if (kind === "delete") {
+      title.textContent = "메모 삭제";
+      msg.textContent = "같은 줄로 묶인 메모가 여러 날짜에 있어요.";
+      btnAll.className = "btn btn--danger scope-modal__action-btn";
+    } else {
+      title.textContent = "완료 표시";
+      msg.textContent = "같은 줄이 여러 날짜에 걸려 있어요.";
+      btnAll.className = "btn btn--primary scope-modal__action-btn";
+    }
+
+    modal.classList.remove("is-hidden");
+    modal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("scope-modal-open");
+    btnThis.focus();
+  }
+
+  function requestDeleteLine(lineId, dateKey) {
+    var dk = dateKey || focusDate;
+    if (countDateKeysWithLineId(lineId) <= 1) {
+      deleteLineAll(lineId);
+      return;
+    }
+    if (!dk) {
+      deleteLineAll(lineId);
+      return;
+    }
+    openScopeModal("delete", lineId, dk);
+  }
+
+  function requestToggleLineDone(lineId, dateKey) {
+    var dk = dateKey || focusDate;
+    if (countDateKeysWithLineId(lineId) <= 1) {
+      toggleLineDoneAll(lineId);
+      return;
+    }
+    if (!dk) {
+      toggleLineDoneAll(lineId);
+      return;
+    }
+    if (!lineIdDoneIsUniformAcrossDates(lineId)) {
+      toggleLineDoneForDate(lineId, dk);
+      return;
+    }
+    openScopeModal("toggle", lineId, dk);
+  }
+
+  function initScopeModal() {
+    var cancel = document.getElementById("scopeModalCancel");
+    var backdrop = document.getElementById("scopeModalBackdrop");
+    var btnThis = document.getElementById("scopeModalThisDay");
+    var btnAll = document.getElementById("scopeModalAllDays");
+    if (!cancel || !backdrop || !btnThis || !btnAll) return;
+
+    cancel.addEventListener("click", closeScopeModal);
+    backdrop.addEventListener("click", closeScopeModal);
+    btnThis.addEventListener("click", function () {
+      var p = pendingScopeAction;
+      var dk = p && (p.dateKey || focusDate);
+      if (!p || !dk) {
+        closeScopeModal();
+        return;
+      }
+      var kind = p.kind;
+      var lid = p.lineId;
+      closeScopeModal();
+      if (kind === "delete") deleteLineForDate(lid, dk);
+      else toggleLineDoneForDate(lid, dk);
+    });
+    btnAll.addEventListener("click", function () {
+      var p = pendingScopeAction;
+      if (!p) {
+        closeScopeModal();
+        return;
+      }
+      var kind = p.kind;
+      var lid = p.lineId;
+      closeScopeModal();
+      if (kind === "delete") deleteLineAll(lid);
+      else toggleLineDoneAll(lid);
+    });
+
+    document.addEventListener("keydown", function (e) {
+      var modal = document.getElementById("scopeConfirmModal");
+      if (!modal || modal.classList.contains("is-hidden")) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeScopeModal();
+      }
     });
   }
 
@@ -190,6 +422,14 @@
     }
 
     return cells;
+  }
+
+  var STREAK_BAND_PX = 17;
+
+  /** lineId 접두 타임스탬프(메모 생성 순서). 없으면 0 */
+  function lineIdTimeKey(lineId) {
+    var n = parseInt(String(lineId).split("-")[0], 10);
+    return isNaN(n) ? 0 : n;
   }
 
   function computeStreakRuns(rowCells, map) {
@@ -257,47 +497,19 @@
     return runs;
   }
 
-  /** 같은 주에서 선택만 되어 있고 칸 번호가 연속일 때 막대 하나로 묶음 */
-  function computeSelectionRuns(rowCells) {
-    var cols = [];
-    rowCells.forEach(function (rc) {
-      if (rc.outside) return;
-      if (!selectedDates[rc.key]) return;
-      cols.push(rc.col);
-    });
-    cols = cols
-      .filter(function (v, i, a) {
-        return a.indexOf(v) === i;
-      })
-      .sort(function (a, b) {
-        return a - b;
-      });
-    var runs = [];
-    var i = 0;
-    while (i < cols.length) {
-      var start = cols[i];
-      var j = i;
-      while (j + 1 < cols.length && cols[j + 1] === cols[j] + 1) j++;
-      runs.push({
-        startCol: start,
-        spanCols: cols[j] - start + 1,
-      });
-      i = j + 1;
-    }
-    return runs;
-  }
-
   var els = {
     shell: document.getElementById("calendarGridShell"),
-    viewPeriodLabel: document.getElementById("viewPeriodLabel"),
+    viewPeriodHeading: document.getElementById("viewPeriodHeading"),
+    multiSelectToggle: document.getElementById("multiSelectToggle"),
+    periodPickerTrigger: document.getElementById("periodPickerTrigger"),
+    periodPickerPopover: document.getElementById("periodPickerPopover"),
+    periodYearSelect: document.getElementById("periodYearSelect"),
+    periodMonthSelect: document.getElementById("periodMonthSelect"),
     btnPrev: document.getElementById("btnPrev"),
     btnNext: document.getElementById("btnNext"),
     btnToday: document.getElementById("btnToday"),
     syncStatus: document.getElementById("syncStatus"),
-    dayMemoDateLabel: document.getElementById("dayMemoDateLabel"),
-    dayMemoList: document.getElementById("dayMemoList"),
-    dayMemoEmpty: document.getElementById("dayMemoEmpty"),
-    selectionSummary: document.getElementById("selectionSummary"),
+    dayMemoStacks: document.getElementById("dayMemoStacks"),
     memoForm: document.getElementById("memoForm"),
     memoInput: document.getElementById("memoInput"),
     hiddenColor: document.getElementById("hiddenColor"),
@@ -374,19 +586,13 @@
     );
   }
 
-  function formatFocusHeading(key) {
+  /** 우측 패널 상단 날짜 한 줄 */
+  function formatMemoPanelDate(key) {
     var p = parseKey(key);
     var dt = new Date(p.y, p.m, p.d);
     var w = ["일", "월", "화", "수", "목", "금", "토"][dt.getDay()];
     return (
-      p.y +
-      "년 " +
-      (p.m + 1) +
-      "월 " +
-      p.d +
-      "일 (" +
-      w +
-      ") 메모"
+      p.y + ". " + (p.m + 1) + ". " + p.d + " · " + w
     );
   }
 
@@ -394,30 +600,136 @@
     renderPeriod();
     renderGrid();
     renderDayMemosPanel();
-    renderSelectionSummary();
     syncMemoFormState();
+  }
+
+  var PERIOD_YEAR_MIN = 1970;
+  var PERIOD_YEAR_MAX = 2075;
+
+  var periodSelectSyncing = false;
+
+  function setPeriodPopoverOpen(open) {
+    if (!els.periodPickerPopover || !els.periodPickerTrigger) return;
+    if (open) {
+      els.periodPickerPopover.classList.remove("is-hidden");
+      els.periodPickerPopover.setAttribute("aria-hidden", "false");
+      els.periodPickerTrigger.setAttribute("aria-expanded", "true");
+    } else {
+      els.periodPickerPopover.classList.add("is-hidden");
+      els.periodPickerPopover.setAttribute("aria-hidden", "true");
+      els.periodPickerTrigger.setAttribute("aria-expanded", "false");
+    }
+  }
+
+  function initMultiSelectControl() {
+    if (!els.multiSelectToggle) return;
+    els.multiSelectToggle.checked = false;
+    els.multiSelectToggle.addEventListener("change", function () {
+      multiSelectMode = !!els.multiSelectToggle.checked;
+      if (!multiSelectMode) {
+        var keys = Object.keys(selectedDates).filter(function (k) {
+          return selectedDates[k];
+        });
+        if (keys.length > 1) {
+          selectedDates = Object.create(null);
+          if (focusDate && keys.indexOf(focusDate) !== -1) {
+            selectedDates[focusDate] = true;
+          } else {
+            selectedDates[keys[0]] = true;
+            focusDate = keys[0];
+          }
+        }
+      }
+      refreshUi();
+    });
+  }
+
+  function initPeriodPicker() {
+    if (!els.periodYearSelect || !els.periodMonthSelect || !els.periodPickerTrigger) return;
+    if (els.periodYearSelect.options.length > 0) return;
+
+    for (var y = PERIOD_YEAR_MIN; y <= PERIOD_YEAR_MAX; y++) {
+      var oy = document.createElement("option");
+      oy.value = String(y);
+      oy.textContent = y + "년";
+      els.periodYearSelect.appendChild(oy);
+    }
+    for (var m = 1; m <= 12; m++) {
+      var om = document.createElement("option");
+      om.value = String(m);
+      om.textContent = m + "월";
+      els.periodMonthSelect.appendChild(om);
+    }
+
+    function applyFromSelects() {
+      if (periodSelectSyncing) return;
+      var ny = parseInt(String(els.periodYearSelect.value), 10);
+      var nm = parseInt(String(els.periodMonthSelect.value), 10) - 1;
+      if (isNaN(ny) || isNaN(nm)) return;
+      ny = Math.max(PERIOD_YEAR_MIN, Math.min(PERIOD_YEAR_MAX, ny));
+      nm = Math.max(0, Math.min(11, nm));
+      if (ny !== state.viewYear || nm !== state.viewMonth) {
+        state.viewYear = ny;
+        state.viewMonth = nm;
+        refreshUi();
+      }
+    }
+
+    els.periodYearSelect.addEventListener("change", applyFromSelects);
+    els.periodMonthSelect.addEventListener("change", applyFromSelects);
+
+    els.periodPickerTrigger.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var willOpen = els.periodPickerPopover.classList.contains("is-hidden");
+      setPeriodPopoverOpen(willOpen);
+    });
+
+    document.addEventListener(
+      "click",
+      function (e) {
+        if (
+          !els.periodPickerPopover ||
+          els.periodPickerPopover.classList.contains("is-hidden")
+        ) {
+          return;
+        }
+        var t = e.target;
+        if (
+          els.periodPickerTrigger.contains(t) ||
+          els.periodPickerPopover.contains(t)
+        ) {
+          return;
+        }
+        setPeriodPopoverOpen(false);
+      },
+      true
+    );
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      if (
+        els.periodPickerPopover &&
+        !els.periodPickerPopover.classList.contains("is-hidden")
+      ) {
+        setPeriodPopoverOpen(false);
+      }
+    });
   }
 
   function renderPeriod() {
     var y = state.viewYear;
     var m = state.viewMonth;
-    els.viewPeriodLabel.textContent = y + "년 " + (m + 1) + "월";
-  }
-
-  function renderSelectionSummary() {
-    var keys = Object.keys(selectedDates).filter(function (k) {
-      return selectedDates[k];
-    });
-    var lines = [];
-    if (keys.length > 0) {
-      lines.push("선택된 날짜 " + keys.length + "일 · 추가하면 모두에 같은 줄로 표시됩니다.");
-    } else {
-      lines.push("날짜를 클릭할 때마다 선택이 더해지거나 빠집니다. 한 줄에서 붙어 있는 날은 아래 막대도 이어집니다.");
+    if (els.viewPeriodHeading) {
+      els.viewPeriodHeading.textContent = y + "년 " + (m + 1) + "월";
     }
-    if (focusDate) {
-      lines.push("포커스: " + formatFocusHeading(focusDate).replace(" 메모", ""));
+    if (els.periodYearSelect && els.periodMonthSelect) {
+      periodSelectSyncing = true;
+      els.periodYearSelect.value = String(
+        Math.max(PERIOD_YEAR_MIN, Math.min(PERIOD_YEAR_MAX, y))
+      );
+      els.periodMonthSelect.value = String(Math.max(1, Math.min(12, m + 1)));
+      periodSelectSyncing = false;
     }
-    els.selectionSummary.textContent = lines.join(" ");
   }
 
   function syncMemoFormState() {
@@ -429,68 +741,103 @@
     });
   }
 
-  function renderDayMemosPanel() {
-    els.dayMemoList.innerHTML = "";
-
-    if (!focusDate) {
-      els.dayMemoDateLabel.textContent = "";
-      els.dayMemoEmpty.textContent =
-        "달력에서 날짜를 눌러 메모를 확인하세요.";
-      els.dayMemoEmpty.classList.remove("is-hidden");
-      return;
-    }
-
-    els.dayMemoDateLabel.textContent = formatFocusHeading(focusDate).replace(
-      " 메모",
-      ""
-    );
-
-    var items = sortEventsForDisplay(
-      normalizedListForKey(focusDate, readAll())
-    );
-
-    if (items.length === 0) {
-      els.dayMemoEmpty.textContent = "이 날짜에는 메모가 없습니다.";
-      els.dayMemoEmpty.classList.remove("is-hidden");
-      return;
-    }
-
-    els.dayMemoEmpty.classList.add("is-hidden");
-
-    items.forEach(function (ev) {
-      var li = document.createElement("li");
-      li.className = "day-memo-item";
-
-      var row = document.createElement("div");
-      row.className = "day-memo-item__row";
-
-      var stripe = document.createElement("span");
-      stripe.className = "day-memo-item__stripe";
-      stripe.style.backgroundColor = ev.color;
-
-      var body = document.createElement("div");
-      body.className = "day-memo-item__body";
-      var p = document.createElement("p");
-      p.className = "day-memo-item__text";
-      p.textContent = ev.title;
-      body.appendChild(p);
-
-      var del = document.createElement("button");
-      del.type = "button";
-      del.className = "btn-trash";
-      del.setAttribute("aria-label", "삭제");
-      del.innerHTML =
-        '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>';
-      del.addEventListener("click", function () {
-        deleteLine(ev.lineId);
+  /** 패널에 표시할 날짜 키 (다중 선택 시 여러 개) */
+  function keysForMemoPanel() {
+    if (!focusDate) return [];
+    if (multiSelectMode) {
+      var keys = Object.keys(selectedDates).filter(function (k) {
+        return selectedDates[k];
       });
+      keys.sort();
+      if (keys.length > 1) return keys;
+    }
+    return [focusDate];
+  }
 
-      row.appendChild(stripe);
-      row.appendChild(body);
-      row.appendChild(del);
+  function renderDayMemosPanel() {
+    if (!els.dayMemoStacks) return;
+    els.dayMemoStacks.innerHTML = "";
 
-      li.appendChild(row);
-      els.dayMemoList.appendChild(li);
+    var keys = keysForMemoPanel();
+    if (keys.length === 0) return;
+
+    var map = readAll();
+    var multiStacks = keys.length > 1;
+
+    keys.forEach(function (dateKey) {
+      var stack = document.createElement("article");
+      stack.className = "day-memo-stack";
+      if (dateKey === focusDate) stack.classList.add("day-memo-stack--focus");
+
+      var dateEl = document.createElement("p");
+      dateEl.className = "day-memo-stack__date";
+      dateEl.textContent = formatMemoPanelDate(dateKey);
+      if (multiStacks) {
+        dateEl.classList.add("day-memo-stack__date--clickable");
+        dateEl.title = "달력에서 이 날로 포커스";
+        dateEl.addEventListener("click", function () {
+          focusDate = dateKey;
+          refreshUi();
+        });
+      }
+
+      var ul = document.createElement("ul");
+      ul.className = "day-memo-list";
+
+      var items = sortDayMemosForPanel(normalizedListForKey(dateKey, map));
+
+      if (items.length === 0) {
+        var emptyLi = document.createElement("li");
+        emptyLi.className = "day-memo-stack__empty";
+        emptyLi.textContent = "메모 없음";
+        ul.appendChild(emptyLi);
+      } else {
+        items.forEach(function (ev) {
+          var li = document.createElement("li");
+          li.className = "day-memo-item" + (ev.done ? " is-done" : "");
+
+          var row = document.createElement("div");
+          row.className = "day-memo-item__row";
+
+          var stripe = document.createElement("span");
+          stripe.className = "day-memo-item__stripe";
+          stripe.style.backgroundColor = ev.color;
+
+          var body = document.createElement("div");
+          body.className = "day-memo-item__body";
+          var p = document.createElement("p");
+          p.className = "day-memo-item__text";
+          p.textContent = ev.title;
+          body.appendChild(p);
+
+          var del = document.createElement("button");
+          del.type = "button";
+          del.className = "btn-trash";
+          del.setAttribute("aria-label", "삭제");
+          del.innerHTML =
+            '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>';
+          del.addEventListener("click", function (e) {
+            e.stopPropagation();
+            requestDeleteLine(ev.lineId, dateKey);
+          });
+
+          row.addEventListener("click", function (e) {
+            if (e.target.closest(".btn-trash")) return;
+            requestToggleLineDone(ev.lineId, dateKey);
+          });
+
+          row.appendChild(stripe);
+          row.appendChild(body);
+          row.appendChild(del);
+
+          li.appendChild(row);
+          ul.appendChild(li);
+        });
+      }
+
+      stack.appendChild(dateEl);
+      stack.appendChild(ul);
+      els.dayMemoStacks.appendChild(stack);
     });
   }
 
@@ -508,11 +855,8 @@
       var rowEl = document.createElement("div");
       rowEl.className = "calendar-week-pack__cells";
 
-      var streakLayer = document.createElement("div");
-      streakLayer.className = "calendar-week-pack__streaks";
-      streakLayer.setAttribute("aria-hidden", "true");
-
       var rowCells = [];
+      var rowButtons = [];
 
       for (let c = 0; c < 7; c++) {
         let idx = w * 7 + c;
@@ -544,38 +888,14 @@
         num.textContent = String(cell.d);
         btn.appendChild(num);
 
-        var normalizedCell = normalizedListForKey(key, all);
-        var sorted = sortEventsForDisplay(normalizedCell);
-
-        if (sorted.length > 0 && !cell.outside) {
-          btn.classList.add("grid__cell--has-items");
-
-          var bodyWrap = document.createElement("div");
-          bodyWrap.className = "grid__cell-body";
-
-          var sums = document.createElement("div");
-          sums.className = "grid__cell-summaries";
-          var maxLines = 4;
-          sorted.slice(0, maxLines).forEach(function (ev) {
-            var line = document.createElement("span");
-            line.className = "grid__summary-line";
-            line.textContent = truncate(ev.summary || ev.title, 20);
-            line.title = ev.title;
-            sums.appendChild(line);
-          });
-          if (sorted.length > maxLines) {
-            var moreSum = document.createElement("span");
-            moreSum.className = "grid__summary-more";
-            moreSum.textContent = "+" + (sorted.length - maxLines);
-            sums.appendChild(moreSum);
-          }
-          bodyWrap.appendChild(sums);
-          btn.appendChild(bodyWrap);
-        }
-
         if (!cell.outside) {
           btn.addEventListener("click", function () {
-            toggleSelected(key);
+            if (multiSelectMode) {
+              toggleSelected(key);
+            } else {
+              selectedDates = Object.create(null);
+              selectedDates[key] = true;
+            }
             focusDate = key;
             refreshUi();
           });
@@ -585,30 +905,105 @@
         }
 
         rowEl.appendChild(btn);
+        rowButtons.push(btn);
       }
 
-      computeSelectionRuns(rowCells).forEach(function (run) {
-        var selSeg = document.createElement("span");
-        selSeg.className =
-          "calendar-streak-segment calendar-streak-segment--selection";
-        selSeg.style.gridColumn =
-          run.startCol + 1 + " / span " + run.spanCols;
-        streakLayer.appendChild(selSeg);
+      var runs = computeStreakRuns(rowCells, all);
+
+      var runsByLineId = Object.create(null);
+      runs.forEach(function (run) {
+        if (!runsByLineId[run.lineId]) runsByLineId[run.lineId] = [];
+        runsByLineId[run.lineId].push(run);
       });
 
-      var runs = computeStreakRuns(rowCells, all);
-      runs.forEach(function (run) {
-        var seg = document.createElement("span");
-        seg.className =
-          "calendar-streak-segment" +
-          (run.done ? " calendar-streak-segment--done" : "");
-        seg.style.gridColumn = run.startCol + 1 + " / span " + run.spanCols;
-        seg.style.backgroundColor = run.color;
-        streakLayer.appendChild(seg);
+      var uniqueLineIds = Object.keys(runsByLineId);
+      uniqueLineIds.sort(function (a, b) {
+        return lineIdTimeKey(b) - lineIdTimeKey(a);
       });
+
+      var colSlotOwner = [];
+      for (var ci = 0; ci < 7; ci++) {
+        colSlotOwner[ci] = Object.create(null);
+      }
+
+      var slotByLineId = Object.create(null);
+
+      uniqueLineIds.forEach(function (lid) {
+        var lineRuns = runsByLineId[lid];
+        var s = 0;
+        for (;;) {
+          var ok = true;
+          for (var ri = 0; ri < lineRuns.length && ok; ri++) {
+            var rn = lineRuns[ri];
+            for (var col = rn.startCol; col < rn.startCol + rn.spanCols; col++) {
+              if (col < 0 || col > 6) continue;
+              var owner = colSlotOwner[col][s];
+              if (owner != null && owner !== lid) {
+                ok = false;
+                break;
+              }
+            }
+          }
+          if (ok) break;
+          s++;
+        }
+        slotByLineId[lid] = s;
+        for (var rj = 0; rj < lineRuns.length; rj++) {
+          var rx = lineRuns[rj];
+          for (var col2 = rx.startCol; col2 < rx.startCol + rx.spanCols; col2++) {
+            if (col2 < 0 || col2 > 6) continue;
+            colSlotOwner[col2][s] = lid;
+          }
+        }
+      });
+
+      var maxSlotIdx = 0;
+      uniqueLineIds.forEach(function (lid) {
+        maxSlotIdx = Math.max(maxSlotIdx, slotByLineId[lid]);
+      });
+
+      var bandCount =
+        uniqueLineIds.length === 0 ? 0 : maxSlotIdx + 1;
+
+      var padExtra = 8;
+      var streakPad =
+        bandCount === 0 ? 13 : bandCount * STREAK_BAND_PX + padExtra;
+      rowEl.style.setProperty("--cell-streak-pad", streakPad + "px");
+
+      var stripHeightPx = bandCount === 0 ? 0 : bandCount * STREAK_BAND_PX;
+
+      var colBands = [[], [], [], [], [], [], []];
+      runs.forEach(function (run) {
+        var slot = slotByLineId[run.lineId];
+        for (var col = run.startCol; col < run.startCol + run.spanCols; col++) {
+          if (col < 0 || col > 6) continue;
+          colBands[col].push({
+            slot: slot,
+            color: run.color,
+            done: run.done,
+          });
+        }
+      });
+
+      for (let c = 0; c < 7; c++) {
+        var strip = document.createElement("div");
+        strip.className = "grid__cell-streak-stripes";
+        strip.setAttribute("aria-hidden", "true");
+        strip.style.height = stripHeightPx + "px";
+        colBands[c].forEach(function (seg) {
+          var span = document.createElement("span");
+          span.className =
+            "calendar-streak-segment" +
+            (seg.done ? " calendar-streak-segment--done" : "");
+          span.style.backgroundColor = seg.color;
+          span.style.height = STREAK_BAND_PX + "px";
+          span.style.bottom = seg.slot * STREAK_BAND_PX + "px";
+          strip.appendChild(span);
+        });
+        rowButtons[c].appendChild(strip);
+      }
 
       pack.appendChild(rowEl);
-      pack.appendChild(streakLayer);
       frag.appendChild(pack);
     }
 
@@ -681,6 +1076,13 @@
     els.memoInput.value = "";
     focusDate = targets[targets.length - 1];
     selectedDates = Object.create(null);
+    if (multiSelectMode) {
+      targets.forEach(function (k) {
+        selectedDates[k] = true;
+      });
+    } else if (focusDate) {
+      selectedDates[focusDate] = true;
+    }
     writeAll(map);
   });
 
@@ -696,6 +1098,10 @@
       chip.setAttribute("aria-pressed", "true");
     });
   });
+
+  initMultiSelectControl();
+  initPeriodPicker();
+  initScopeModal();
 
   eventsCache = loadLocalObject();
   refreshUi();
