@@ -95,19 +95,31 @@
 
           <input type="hidden" name="color" id="hiddenColor" value="#fde047" />
 
-          <div class="color-strip" role="group" aria-label="형광펜 색">
-            <button type="button" class="color-chip color-chip--active" style="background-color:#fde047" data-color="#fde047" aria-pressed="true" title="노랑"></button>
-            <button type="button" class="color-chip" style="background-color:#fda4af" data-color="#fda4af" aria-pressed="false" title="핑크"></button>
-            <button type="button" class="color-chip" style="background-color:#86efac" data-color="#86efac" aria-pressed="false" title="민트"></button>
-            <button type="button" class="color-chip" style="background-color:#7dd3fc" data-color="#7dd3fc" aria-pressed="false" title="하늘"></button>
-            <button type="button" class="color-chip" style="background-color:#fdba74" data-color="#fdba74" aria-pressed="false" title="오렌지"></button>
-            <button type="button" class="color-chip" style="background-color:#c4b5fd" data-color="#c4b5fd" aria-pressed="false" title="보라"></button>
+          <div class="color-picker-block">
+            <div class="color-picker-block__chips">
+              <div class="color-strip" role="group" aria-label="형광펜 색">
+                <button type="button" class="color-chip color-chip--active" style="background-color:#fde047" data-color="#fde047" aria-pressed="true" title="노랑"></button>
+                <button type="button" class="color-chip" style="background-color:#fda4af" data-color="#fda4af" aria-pressed="false" title="핑크"></button>
+                <button type="button" class="color-chip" style="background-color:#86efac" data-color="#86efac" aria-pressed="false" title="민트"></button>
+                <button type="button" class="color-chip" style="background-color:#7dd3fc" data-color="#7dd3fc" aria-pressed="false" title="하늘"></button>
+                <button type="button" class="color-chip" style="background-color:#fdba74" data-color="#fdba74" aria-pressed="false" title="오렌지"></button>
+                <button type="button" class="color-chip" style="background-color:#c4b5fd" data-color="#c4b5fd" aria-pressed="false" title="보라"></button>
+              </div>
+              <div class="color-legend-row" id="colorLegendRow" aria-hidden="true"></div>
+            </div>
+            <button type="button" class="btn-edit-legend" id="btnEditColorLegend" aria-label="형광펜 종류 이름 편집">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </button>
           </div>
 
           <button type="submit" class="btn btn--primary">메모 추가</button>
         </form>
 
         <section class="day-memos" aria-label="선택 날짜별 메모">
+          <div class="day-memos-toolbar" role="tablist" aria-label="메모 보기 모드">
+            <button type="button" class="btn btn--ghost day-memos-toolbar__btn is-active" id="btnPanelViewDay" role="tab" aria-selected="true">선택 날짜</button>
+            <button type="button" class="btn btn--ghost day-memos-toolbar__btn" id="btnPanelViewMonth" role="tab" aria-selected="false">전체 일정</button>
+          </div>
           <div class="day-memo-stacks" id="dayMemoStacks"></div>
         </section>
       </aside>
@@ -134,6 +146,28 @@
       <div class="scope-modal__actions">
         <button type="button" class="btn btn--ghost scope-modal__action-btn" id="scopeModalThisDay">이 날짜만</button>
         <button type="button" class="btn btn--primary scope-modal__action-btn" id="scopeModalAllDays">모든 날짜</button>
+      </div>
+    </div>
+  </div>
+
+  <div
+    id="colorLabelsModal"
+    class="scope-modal is-hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="colorLabelsModalTitle"
+    aria-hidden="true"
+  >
+    <div class="scope-modal__backdrop" id="colorLabelsModalBackdrop" tabindex="-1"></div>
+    <div class="scope-modal__panel scope-modal__panel--labels">
+      <header class="scope-modal__head">
+        <h2 id="colorLabelsModalTitle" class="scope-modal__title">형광펜 종류 이름</h2>
+        <button type="button" class="scope-modal__cancel" id="colorLabelsModalCancel" aria-label="닫기">닫기</button>
+      </header>
+      <p class="scope-modal__text">각 색에 붙일 짧은 이름을 적어 두면 목록 아래에 함께 표시됩니다.</p>
+      <div class="color-labels-edit" id="colorLabelsEditFields"></div>
+      <div class="scope-modal__actions scope-modal__actions--stack">
+        <button type="button" class="btn btn--primary scope-modal__action-btn" id="colorLabelsModalSave">저장</button>
       </div>
     </div>
   </div>

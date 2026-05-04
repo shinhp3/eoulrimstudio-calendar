@@ -269,6 +269,35 @@ body {
   outline-offset: 2px;
 }
 
+.btn-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  margin: 0.4rem 0.15rem 0.4rem 0;
+  padding: 0;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color var(--transition),
+    background var(--transition);
+}
+
+.btn-edit:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.btn-edit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 
 /* Buttons */
 
@@ -506,6 +535,33 @@ body {
   background: var(--pick-bg-hover) !important;
 }
 
+/* 전체 일정 페이지네이션: 우측에 보이는 날짜와 같은 칸 */
+.grid__cell--month-page:not(.grid__cell--outside) {
+  background: rgba(52, 211, 153, 0.13);
+  box-shadow: inset 0 0 0 2px rgba(5, 150, 105, 0.42);
+}
+
+.grid__cell--month-page:not(.grid__cell--outside):hover:not(:disabled) {
+  background: rgba(52, 211, 153, 0.2);
+}
+
+.grid__cell--today.grid__cell--month-page:not(.grid__cell--outside):not(.grid__cell--picked) {
+  background: rgba(167, 243, 208, 0.35);
+  box-shadow: inset 0 0 0 2px rgba(5, 150, 105, 0.48);
+}
+
+.grid__cell--today.grid__cell--month-page:not(.grid__cell--outside):not(.grid__cell--picked):hover:not(:disabled) {
+  background: rgba(167, 243, 208, 0.48);
+}
+
+.grid__cell--focus.grid__cell--month-page:not(.grid__cell--outside):not(.grid__cell--picked) {
+  box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.55);
+}
+
+.grid__cell--picked.grid__cell--month-page:not(.grid__cell--outside) {
+  box-shadow: inset 0 0 0 2px rgba(5, 150, 105, 0.45);
+}
+
 .grid__cell--sun .grid__cell-num {
   color: var(--sun);
 }
@@ -547,6 +603,76 @@ body {
   margin-top: 1rem;
   padding-top: 1rem;
   border-top: 1px solid var(--border-subtle);
+}
+
+.day-memos-toolbar {
+  display: flex;
+  flex-direction: row;
+  gap: 0.4rem;
+  margin-bottom: 0.65rem;
+}
+
+.day-memos-toolbar__btn {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: #fff;
+  color: var(--text-muted);
+}
+
+.day-memos-toolbar__btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-cell-outside);
+}
+
+.day-memos-toolbar__btn.is-active {
+  color: var(--text);
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(59, 130, 246, 0.08);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.12);
+}
+
+.day-memos-empty-month {
+  margin: 0.5rem 0 0;
+  padding: 0.75rem 0.5rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.day-memos-month-pager {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  flex-shrink: 0;
+  margin-bottom: 0.45rem;
+  padding: 0.15rem 0;
+}
+
+.day-memos-month-pager__btn {
+  flex-shrink: 0;
+}
+
+.day-memos-month-pager__btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.day-memos-month-pager__status {
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  min-width: 3.25rem;
+  text-align: center;
 }
 
 .day-memo-stacks {
@@ -667,6 +793,50 @@ body {
   color: var(--text);
 }
 
+.day-memo-item__edit-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.35rem 0.25rem 0.35rem 0.35rem;
+}
+
+.day-memo-item__edit-input {
+  width: 100%;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  padding: 0.45rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  resize: vertical;
+  min-height: 4rem;
+  box-sizing: border-box;
+}
+
+.day-memo-item__edit-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.day-memo-item__edit-actions {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.day-memo-item__edit-actions .btn {
+  width: auto;
+  min-width: 4rem;
+  padding: 0.38rem 0.65rem;
+  font-size: 0.75rem;
+}
+
+.day-memo-item__edit-actions .btn--primary {
+  flex: 0 0 auto;
+}
+
 .memo-form {
   display: flex;
   flex-direction: column;
@@ -700,11 +870,79 @@ body {
   color: var(--text-faint);
 }
 
+.color-picker-block {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.45rem;
+}
+
+.color-picker-block__chips {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
 .color-strip {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
+}
+
+.color-legend-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.color-legend-row__cell {
+  width: 2rem;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.03em;
+  color: var(--text-muted);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  max-height: 3.4em;
+  overflow: hidden;
+}
+
+.btn-edit-legend {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  margin-top: 0.1rem;
+  padding: 0;
+  flex-shrink: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color var(--transition),
+    border-color var(--transition),
+    background var(--transition);
+}
+
+.btn-edit-legend:hover {
+  color: var(--accent);
+  border-color: rgba(59, 130, 246, 0.35);
+  background: var(--accent-soft);
+}
+
+.btn-edit-legend:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .color-chip {
@@ -777,6 +1015,64 @@ body.scope-modal-open {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   border: 1px solid var(--border-subtle);
+}
+
+.scope-modal__panel--labels {
+  width: min(100%, 22rem);
+}
+
+.color-labels-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+  max-height: min(52vh, 22rem);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.color-labels-edit__row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.color-labels-edit__swatch {
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-shrink: 0;
+  border-radius: 999px;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.12),
+    0 2px 6px rgba(15, 23, 42, 0.08);
+}
+
+.color-labels-edit__input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: #fff;
+  color: var(--text);
+}
+
+.color-labels-edit__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.scope-modal__actions--stack {
+  flex-direction: column;
+}
+
+.scope-modal__actions--stack .scope-modal__action-btn {
+  flex: none;
+  width: 100%;
 }
 
 .scope-modal__head {
